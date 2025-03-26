@@ -32,6 +32,17 @@ config EEPROM_AT24
 	  This driver can also be built as a module.  If so, the module
 	  will be called at24.
 
+config EEPROM_AT24_UNIQUE_LABELS
+	bool "EEPROM_AT24 UNIQUE LABELS WORK AROUND"
+	depends on EEPROM_AT24
+	default n
+	help
+	  Recently there was a change to the at24 driver that was made to
+	  handle the case where you have multiple eeproms with the same
+	  label. This is bad behavior and we do not attend on having
+	  multiple eeproms with the same label. To prevent kernel issues
+	  you MUST have unique eeprom labels.
+
 config EEPROM_AT25
 	tristate "SPI EEPROMs (FRAMs) from most vendors"
 	depends on SPI && SYSFS

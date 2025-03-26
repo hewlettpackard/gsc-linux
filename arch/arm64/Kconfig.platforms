@@ -396,4 +396,47 @@ config ARCH_ZYNQMP
 	help
 	  This enables support for Xilinx ZynqMP Family
 
+menuconfig ARCH_HPE
+	bool "HPE SOC SUPPORT"
+	help
+	  This enables support for HPE ARM based SOC chips.
+
+if ARCH_HPE
+
+config ARCH_HPE_GSC_TIMER_WA
+	bool "Architectural Timer workaround for GSC"
+	help
+	  This enables the Architectural Timer workaround for GSC.
+	  Once Architectural Timers are available in GSC B0 ASIC,
+	  this can be removed.
+
+config ARCH_HPE_GSC_JEMU_ETHERNET_WA
+	bool "Architectural Ethernet workaround for JEMU64"
+	help
+	  This enables the workaround to get ethernet working on JEMU
+	  with a bugfix bit. This is NOT required on SanJac ASIC and
+	  needs to be removed.
+
+config GSC_RANDOM_MAC_ADDRESS
+	bool "Enables random MAC address"
+	help
+	  This enables generation of random MAC address when there
+	  is no valid one available.
+
+config ARCH_HPE_GSC
+	bool "HPE GSC SOC"
+	select PINCTRL
+	select GENERIC_IRQ_CHIP
+	select CLKSRC_MMIO
+	help
+	  Support for GSC SOCS
+
+config GSC_B0_BUILD
+	bool "Remove A0/A1 erratas"
+	help
+	  This removes the A0/A1 erratas ensuring a B0 asic will
+	  boot linux and initialize itself correctly.
+
+endif
+
 endmenu # "Platform selection"

@@ -198,9 +198,12 @@
 #define BOUNDARY_OK(addr, len) \
 	((addr | (SZ_128M - 1)) == ((addr + len - 1) | (SZ_128M - 1)))
 
+#define IOPBASE				0xC0000000
+#define MSHCCS_OFFSET			0x0110
+
 #define DWCMSHC_SDHCI_CQE_TRNS_MODE	(SDHCI_TRNS_MULTI | \
-					 SDHCI_TRNS_BLK_CNT_EN | \
-					 SDHCI_TRNS_DMA)
+	SDHCI_TRNS_BLK_CNT_EN | \
+	SDHCI_TRNS_DMA)
 
 /* SMC call for BlueField-3 eMMC RST_N */
 #define BLUEFIELD_SMC_SET_EMMC_RST_N	0x82000007
@@ -459,6 +462,12 @@ static void dwcmshc_set_uhs_signaling(struct sdhci_host *host,
 	ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
 	/* Select Bus Speed Mode for host */
 	ctrl_2 &= ~SDHCI_CTRL_UHS_MASK;
+
+	//Per Nathaniel, Always set the CARD_IS_EMMC bit...
+	ctrl = sdhci_readw(host, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
+	ctrl |= DWCMSHC_CARD_IS_EMMC;
+	sdhci_writew(host, ctrl, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
+
 	if ((timing == MMC_TIMING_MMC_HS200) ||
 	    (timing == MMC_TIMING_UHS_SDR104))
 		ctrl_2 |= SDHCI_CTRL_UHS_SDR104;
@@ -474,9 +483,11 @@ static void dwcmshc_set_uhs_signaling(struct sdhci_host *host,
 		ctrl_2 |= SDHCI_CTRL_UHS_DDR50;
 	else if (timing == MMC_TIMING_MMC_HS400) {
 		/* set CARD_IS_EMMC bit to enable Data Strobe for HS400 */
+	#if 0
 		ctrl = sdhci_readw(host, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
 		ctrl |= DWCMSHC_CARD_IS_EMMC;
 		sdhci_writew(host, ctrl, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
+	#endif
 
 		ctrl_2 |= DWCMSHC_CTRL_HS400;
 	}
@@ -891,11 +902,25 @@ static int th1520_init(struct device *dev,
 	if (dwc_priv->flags & FLAG_IO_FIXED_1V8) {
 		host->flags &= ~SDHCI_SIGNALING_330;
 		host->flags |=  SDHCI_SIGNALING_180;
-	}
+}
 
 	sdhci_enable_v4_mode(host);
 
 	return 0;
+}
+
+static void dwcmshc_sdhci_reset(struct sdhci_host *host, u8 mask)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct dwcmshc_priv *dwc_priv = sdhci_pltfm_priv(pltfm_host);
+	u8 extra;
+
+	sdhci_reset(host, mask);
+
+	extra = sdhci_readb(host, dwc_priv->vendor_specific_area1 + DWCMSHC_HOST_CTRL3);
+	extra &= ~BIT(0);
+	sdhci_writeb(host, extra, dwc_priv->vendor_specific_area1 + DWCMSHC_HOST_CTRL3);
+	sdhci_writel(host, 0x021f0005, dwc_priv->vendor_specific_area1 + DWCMSHC_EMMC_ATCTRL);
 }
 
 static void cv18xx_sdhci_reset(struct sdhci_host *host, u8 mask)
@@ -1118,7 +1143,7 @@ static const struct sdhci_ops sdhci_dwcmshc_ops = {
 	.set_bus_width		= sdhci_set_bus_width,
 	.set_uhs_signaling	= dwcmshc_set_uhs_signaling,
 	.get_max_clock		= dwcmshc_get_max_clock,
-	.reset			= sdhci_reset,
+	.reset			= dwcmshc_sdhci_reset,
 	.adma_write_desc	= dwcmshc_adma_write_desc,
 	.irq			= dwcmshc_cqe_irq_handler,
 };
@@ -1189,9 +1214,9 @@ static const struct sdhci_ops sdhci_dwcmshc_sg2042_ops = {
 
 static const struct dwcmshc_pltfm_data sdhci_dwcmshc_pdata = {
 	.pdata = {
-		.ops = &sdhci_dwcmshc_ops,
-		.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
-		.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
+	.ops = &sdhci_dwcmshc_ops,
+	.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN,
 	},
 };
 
@@ -1199,20 +1224,20 @@ static const struct dwcmshc_pltfm_data sdhci_dwcmshc_pdata = {
 static const struct dwcmshc_pltfm_data sdhci_dwcmshc_bf3_pdata = {
 	.pdata = {
 		.ops = &sdhci_dwcmshc_bf3_ops,
-		.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
-		.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
-			   SDHCI_QUIRK2_ACMD23_BROKEN,
+	.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
+		   SDHCI_QUIRK2_ACMD23_BROKEN,
 	},
 };
 #endif
 
 static const struct dwcmshc_pltfm_data sdhci_dwcmshc_rk35xx_pdata = {
 	.pdata = {
-		.ops = &sdhci_dwcmshc_rk35xx_ops,
-		.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN |
-			  SDHCI_QUIRK_BROKEN_TIMEOUT_VAL,
-		.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
-			   SDHCI_QUIRK2_CLOCK_DIV_ZERO_BROKEN,
+	.ops = &sdhci_dwcmshc_rk35xx_ops,
+	.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN |
+		  SDHCI_QUIRK_BROKEN_TIMEOUT_VAL,
+	.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
+		   SDHCI_QUIRK2_CLOCK_DIV_ZERO_BROKEN,
 	},
 	.init = dwcmshc_rk35xx_init,
 	.postinit = dwcmshc_rk35xx_postinit,
@@ -1360,10 +1385,11 @@ static int dwcmshc_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct sdhci_pltfm_host *pltfm_host;
 	struct sdhci_host *host;
+	void __iomem *cfg0base;
 	struct dwcmshc_priv *priv;
 	const struct dwcmshc_pltfm_data *pltfm_data;
 	int err;
-	u32 extra, caps;
+	u32 extra, caps, value;
 
 	pltfm_data = device_get_match_data(&pdev->dev);
 	if (!pltfm_data) {
@@ -1421,6 +1447,26 @@ static int dwcmshc_probe(struct platform_device *pdev)
 		if (err)
 			goto err_clk;
 	}
+	/* Disable cmd conflict check */
+	extra = sdhci_readb(host, priv->vendor_specific_area1 + DWCMSHC_HOST_CTRL3);
+	extra &= ~BIT(0);
+	sdhci_writeb(host, extra, priv->vendor_specific_area1 + DWCMSHC_HOST_CTRL3);
+	sdhci_writel(host, 0x021f0005, priv->vendor_specific_area1 + DWCMSHC_EMMC_ATCTRL);
+
+	// csfs_59350
+	// Set bit 18 of MSHCCS
+	cfg0base = ioremap(IOPBASE + MSHCCS_OFFSET, 4);
+	if (!cfg0base) {
+		dev_err(dev, "Failed to ioremap 0xC0000110\n");
+	} else {
+
+		value = ioread32(cfg0base);
+		value |= BIT(18);
+		iowrite32(value, cfg0base);
+		iounmap(cfg0base);
+	}
+
+	sdhci_enable_v4_mode(host);
 
 #ifdef CONFIG_ACPI
 	if (pltfm_data == &sdhci_dwcmshc_bf3_pdata)
@@ -1552,7 +1598,7 @@ static int dwcmshc_resume(struct device *dev)
 	}
 
 	ret = clk_bulk_prepare_enable(priv->num_other_clks, priv->other_clks);
-	if (ret)
+		if (ret)
 		goto disable_bus_clk;
 
 	ret = sdhci_resume_host(host);
@@ -1574,8 +1620,8 @@ disable_bus_clk:
 		clk_disable_unprepare(priv->bus_clk);
 disable_clk:
 	clk_disable_unprepare(pltfm_host->clk);
-	return ret;
-}
+			return ret;
+	}
 #endif
 
 #ifdef CONFIG_PM

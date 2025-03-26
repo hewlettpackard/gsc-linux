@@ -34,6 +34,17 @@ config MACB
 	  To compile this driver as a module, choose M here: the module
 	  will be macb.
 
+config HPE_SYNERGY_AN_ERRATA
+	bool "Work around the HPE Synergy AutoNegotiation errata"
+	depends on MACB
+	depends on ARCH_HPE_GSC
+	default n
+	help
+	  The HPE Synergy networking needs a 1000Base-X but also needs
+	  autonegotiation enabled due to a hardware problem. This option
+	  enables autonegotiation while in 1000Base-X mode.
+	  Only enable this option for HPE Synergy networking.
+
 config MACB_USE_HWSTAMP
 	bool "Use IEEE 1588 hwstamp"
 	depends on MACB

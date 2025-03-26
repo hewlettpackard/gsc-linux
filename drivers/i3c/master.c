@@ -713,9 +713,10 @@ static void i3c_masterdev_release(struct device *dev)
 	of_node_put(dev->of_node);
 }
 
-static const struct device_type i3c_masterdev_type = {
+const struct device_type i3c_masterdev_type = {
 	.groups	= i3c_masterdev_groups,
 };
+EXPORT_SYMBOL_GPL(i3c_masterdev_type);
 
 static int i3c_bus_set_mode(struct i3c_bus *i3cbus, enum i3c_bus_mode mode,
 			    unsigned long max_i2c_scl_rate)
@@ -760,6 +761,18 @@ static int i3c_bus_set_mode(struct i3c_bus *i3cbus, enum i3c_bus_mode mode,
 
 	return 0;
 }
+
+int i3c_for_each_dev(void *data, int (*fn)(struct device *, void *))
+{
+	int res;
+
+	mutex_lock(&i3c_core_lock);
+	res = bus_for_each_dev(&i3c_bus_type, NULL, data, fn);
+	mutex_unlock(&i3c_core_lock);
+
+	return res;
+}
+EXPORT_SYMBOL_GPL(i3c_for_each_dev);
 
 static struct i3c_master_controller *
 i2c_adapter_to_i3c_master(struct i2c_adapter *adap)
@@ -2302,15 +2315,26 @@ static int of_populate_i3c_bus(struct i3c_master_controller *master)
 	struct device_node *node;
 	int ret;
 	u32 val;
+	bool ignore_hub_node = false;
+	char *addr_pid;
 
 	if (!i3cbus_np)
 		return 0;
 
 	for_each_available_child_of_node(i3cbus_np, node) {
-		ret = of_i3c_master_add_dev(master, node);
-		if (ret) {
-			of_node_put(node);
-			return ret;
+		ignore_hub_node = false;
+		if (node->full_name && strstr(node->full_name, "hub")) {
+			addr_pid = strchr(node->full_name, '@');
+			if (addr_pid && strcmp(addr_pid, "@0,0") == 0)
+				ignore_hub_node = true;
+		}
+
+		if (!ignore_hub_node) {
+			ret = of_i3c_master_add_dev(master, node);
+			if (ret) {
+				of_node_put(node);
+				return ret;
+			}
 		}
 	}
 

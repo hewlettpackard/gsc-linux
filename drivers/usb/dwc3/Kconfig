@@ -189,4 +189,14 @@ config USB_DWC3_RTK
 	  or dual-role mode.
 	  Say 'Y' or 'M' if you have such device.
 
+config USB_DWC3_DUAL_ROLE_SWITCH_SYSFS
+	bool "Enable sysfs interface for DWC3 mode switch in dual role"
+	depends on SYSFS && USB_DWC3_DUAL_ROLE
+	default n
+	help
+	  Support for sysfs interface for DWC3 mode switch
+	  In dual role only
+	  This sysfs interface can be used select the DWC3 mode from userspace
+	  supported modes: host,device.
+	  Say Y to enable sysfs interface to select the DWC3 mode when dual role is enabled.
 endif

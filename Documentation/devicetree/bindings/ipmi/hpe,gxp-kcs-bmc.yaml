@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/ipmi/hpe,gxp-kcs-bmc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: GXP BMC Devices
+
+maintainers:
+  - Nick Hawkins <nick.hawkins@hpe.com>
+
+description: |
+  The HPE BMC SoCs typically use the Keyboard-Controller-Style (KCS)
+  interfaces on the LPC bus for in-band IPMI communication with their host.
+
+properties:
+  compatible:
+    const: hpe,gxp-kcs-bmc
+
+  reg:
+    items:
+      - description: Base register
+      - description: Config register
+
+  reg-names:
+    items:
+      - const: base
+      - const: cfg
+
+  interrupts:
+    maxItems: 2
+
+  kcs_chan:
+    deprecated: true
+    $ref: '/schemas/types.yaml#/definitions/uint32'
+    description: The LPC channel number in the controller
+
+required:
+  - compatible
+  - reg
+  - reg-names
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    kcs@80fd0400 {
+        compatible = "hpe,gxp-kcs-bmc";
+        reg = <0x80fd0400 0x100>, <0x80fc0400 0x100>;
+        reg-names = "base", "cfg";
+        interrupts = <8>, <9>;
+        kcs_chan = <1>;
+    };

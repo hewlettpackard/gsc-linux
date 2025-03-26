@@ -14,6 +14,7 @@
 #include <linux/interrupt.h>
 #include <linux/phy/phy.h>
 #include <linux/workqueue.h>
+#include <net/ncsi.h>
 
 #if defined(CONFIG_ARCH_DMA_ADDR_T_64BIT) || defined(CONFIG_MACB_USE_HWSTAMP)
 #define MACB_EXT_DESC
@@ -83,6 +84,7 @@
 #define GEM_NCFGR		0x0004 /* Network Config */
 #define GEM_USRIO		0x000c /* User IO */
 #define GEM_DMACFG		0x0010 /* DMA Configuration */
+#define GEM_IPG_OFFSET		0x001c /* IPG */
 #define GEM_PBUFRXCUT		0x0044 /* RX Partial Store and Forward */
 #define GEM_JML			0x0048 /* Jumbo Max Length */
 #define GEM_HS_MAC_CONFIG	0x0050 /* GEM high speed config */
@@ -813,6 +815,7 @@
 	})
 
 #define MACB_READ_NSR(bp)	macb_readl(bp, NSR)
+#define MACB_READ_PCSCNTRL(bp)	gem_readl(bp, PCSCNTRL)
 
 /* struct macb_dma_desc - Hardware DMA descriptor
  * @addr: DMA address of data buffer
@@ -1335,6 +1338,10 @@ struct macb {
 
 	struct work_struct	hresp_err_bh_work;
 
+#ifdef CONFIG_NET_NCSI
+	struct ncsi_dev *ndev;
+	bool use_ncsi;
+#endif
 	int	rx_bd_rd_prefetch;
 	int	tx_bd_rd_prefetch;
 

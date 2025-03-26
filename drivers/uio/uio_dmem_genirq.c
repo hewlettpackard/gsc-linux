@@ -36,31 +36,33 @@ struct uio_dmem_genirq_platdata {
 	struct platform_device *pdev;
 	unsigned int dmem_region_start;
 	unsigned int num_dmem_regions;
+	void *dmem_region_vaddr[MAX_UIO_MAPS];
 	struct mutex alloc_lock;
 	unsigned int refcnt;
-};
-
-/* Bits in uio_dmem_genirq_platdata.flags */
-enum {
-	UIO_IRQ_DISABLED = 0,
+	unsigned char allocate_at_init;
 };
 
 static int uio_dmem_genirq_open(struct uio_info *info, struct inode *inode)
 {
 	struct uio_dmem_genirq_platdata *priv = info->priv;
 	struct uio_mem *uiomem;
+	int dmem_region = priv->dmem_region_start;
 
 	uiomem = &priv->uioinfo->mem[priv->dmem_region_start];
 
 	mutex_lock(&priv->alloc_lock);
-	while (!priv->refcnt && uiomem < &priv->uioinfo->mem[MAX_UIO_MAPS]) {
+	while (!priv->refcnt && (priv->allocate_at_init == 0) &&
+			uiomem < &priv->uioinfo->mem[MAX_UIO_MAPS]) {
 		void *addr;
 		if (!uiomem->size)
 			break;
 
 		addr = dma_alloc_coherent(&priv->pdev->dev, uiomem->size,
-					  &uiomem->dma_addr, GFP_KERNEL);
-		uiomem->addr = addr ? (uintptr_t) addr : DMEM_MAP_ERROR;
+				(dma_addr_t *)&uiomem->addr, GFP_KERNEL);
+		if (!addr) {
+			uiomem->addr = DMEM_MAP_ERROR;
+		}
+		priv->dmem_region_vaddr[dmem_region++] = addr;
 		++uiomem;
 	}
 	priv->refcnt++;
@@ -75,6 +77,7 @@ static int uio_dmem_genirq_release(struct uio_info *info, struct inode *inode)
 {
 	struct uio_dmem_genirq_platdata *priv = info->priv;
 	struct uio_mem *uiomem;
+	int dmem_region = priv->dmem_region_start;
 
 	/* Tell the Runtime PM code that the device has become idle */
 	pm_runtime_put_sync(&priv->pdev->dev);
@@ -84,20 +87,73 @@ static int uio_dmem_genirq_release(struct uio_info *info, struct inode *inode)
 	mutex_lock(&priv->alloc_lock);
 
 	priv->refcnt--;
-	while (!priv->refcnt && uiomem < &priv->uioinfo->mem[MAX_UIO_MAPS]) {
+	while (!priv->refcnt && (priv->allocate_at_init == 0) &&
+			uiomem < &priv->uioinfo->mem[MAX_UIO_MAPS]) {
 		if (!uiomem->size)
 			break;
-		if (uiomem->addr) {
-			dma_free_coherent(uiomem->dma_device, uiomem->size,
-					  (void *) (uintptr_t) uiomem->addr,
-					  uiomem->dma_addr);
+		if (priv->dmem_region_vaddr[dmem_region]) {
+			dma_free_coherent(&priv->pdev->dev, uiomem->size,
+					priv->dmem_region_vaddr[dmem_region],
+					uiomem->addr);
 		}
 		uiomem->addr = DMEM_MAP_ERROR;
+		++dmem_region;
 		++uiomem;
 	}
 
 	mutex_unlock(&priv->alloc_lock);
 	return 0;
+}
+
+static void uio_dmem_genirq_alloc(struct uio_info *info)
+{
+	struct uio_dmem_genirq_platdata *priv = info->priv;
+	struct uio_mem *uiomem;
+	int dmem_region = priv->dmem_region_start;
+
+	uiomem = &priv->uioinfo->mem[priv->dmem_region_start];
+
+	mutex_lock(&priv->alloc_lock);
+	while (!priv->refcnt && uiomem < &priv->uioinfo->mem[MAX_UIO_MAPS]) {
+		void *addr;
+
+		if (!uiomem->size)
+			break;
+
+		addr = dma_alloc_coherent(&priv->pdev->dev, uiomem->size,
+				(dma_addr_t *)&uiomem->addr, GFP_KERNEL);
+		if (!addr)
+			uiomem->addr = DMEM_MAP_ERROR;
+		priv->dmem_region_vaddr[dmem_region++] = addr;
+		++uiomem;
+	}
+	mutex_unlock(&priv->alloc_lock);
+}
+
+static void uio_dmem_genirq_free(struct uio_info *info)
+{
+	struct uio_dmem_genirq_platdata *priv = info->priv;
+	struct uio_mem *uiomem;
+	int dmem_region = priv->dmem_region_start;
+
+	uiomem = &priv->uioinfo->mem[priv->dmem_region_start];
+
+	mutex_lock(&priv->alloc_lock);
+
+	while (!priv->refcnt && uiomem < &priv->uioinfo->mem[MAX_UIO_MAPS]) {
+		if (!uiomem->size)
+			break;
+		if (priv->dmem_region_vaddr[dmem_region]) {
+			dma_free_coherent(&priv->pdev->dev, uiomem->size,
+					priv->dmem_region_vaddr[dmem_region],
+					uiomem->addr);
+		}
+		uiomem->addr = DMEM_MAP_ERROR;
+		++dmem_region;
+		++uiomem;
+	}
+
+	mutex_unlock(&priv->alloc_lock);
 }
 
 static irqreturn_t uio_dmem_genirq_handler(int irq, struct uio_info *dev_info)
@@ -109,7 +165,7 @@ static irqreturn_t uio_dmem_genirq_handler(int irq, struct uio_info *dev_info)
 	 */
 
 	spin_lock(&priv->lock);
-	if (!__test_and_set_bit(UIO_IRQ_DISABLED, &priv->flags))
+	if (!test_and_set_bit(0, &priv->flags))
 		disable_irq_nosync(irq);
 	spin_unlock(&priv->lock);
 
@@ -131,10 +187,10 @@ static int uio_dmem_genirq_irqcontrol(struct uio_info *dev_info, s32 irq_on)
 
 	spin_lock_irqsave(&priv->lock, flags);
 	if (irq_on) {
-		if (__test_and_clear_bit(UIO_IRQ_DISABLED, &priv->flags))
+		if (test_and_clear_bit(0, &priv->flags))
 			enable_irq(dev_info->irq);
 	} else {
-		if (!__test_and_set_bit(UIO_IRQ_DISABLED, &priv->flags))
+		if (!test_and_set_bit(0, &priv->flags))
 			disable_irq_nosync(dev_info->irq);
 	}
 	spin_unlock_irqrestore(&priv->lock, flags);
@@ -152,6 +208,8 @@ static void uio_dmem_genirq_pm_disable(void *data)
 static int uio_dmem_genirq_probe(struct platform_device *pdev)
 {
 	struct uio_dmem_genirq_pdata *pdata = dev_get_platdata(&pdev->dev);
+	struct uio_dmem_genirq_pdata *temp_pdata = 0;
+	unsigned char allocate_at_init = 0;
 	struct uio_info *uioinfo = &pdata->uioinfo;
 	struct uio_dmem_genirq_platdata *priv;
 	struct uio_mem *uiomem;
@@ -159,15 +217,54 @@ static int uio_dmem_genirq_probe(struct platform_device *pdev)
 	int i;
 
 	if (pdev->dev.of_node) {
+		const char *name;
 		/* alloc uioinfo for one device */
 		uioinfo = devm_kzalloc(&pdev->dev, sizeof(*uioinfo), GFP_KERNEL);
 		if (!uioinfo) {
 			dev_err(&pdev->dev, "unable to kmalloc\n");
 			return -ENOMEM;
 		}
-		uioinfo->name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "%pOFn",
-					       pdev->dev.of_node);
+		if (!of_property_read_string(pdev->dev.of_node, "linux,uio-name", &name))
+			uioinfo->name = devm_kstrdup(&pdev->dev, name, GFP_KERNEL);
+		else
+			uioinfo->name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "%pOFn",
+					pdev->dev.of_node);
 		uioinfo->version = "devicetree";
+
+		/* Allocate a temporary pdata structure into which we can
+		 * read dynamic memory region info from the device tree
+		 * but only if no dynamic memory regions
+		 * already declared.  Make sure the temporary structure
+		 * and its dynamically allocated content is freed
+		 * before this function returns.
+		 */
+		if (!pdata || !pdata->num_dynamic_regions) {
+			temp_pdata = kzalloc(sizeof(*temp_pdata), GFP_KERNEL);
+			if (!temp_pdata) {
+				dev_err(&pdev->dev, "unable to kmalloc\n");
+				return -ENOMEM;
+			}
+			pdata = temp_pdata;
+			pdata->num_dynamic_regions = 0;
+			of_property_read_u32(pdev->dev.of_node,
+				"number-of-dynamic-regions",
+				&pdata->num_dynamic_regions);
+			pdata->dynamic_region_sizes =
+				kzalloc(sizeof(*pdata->dynamic_region_sizes) *
+				pdata->num_dynamic_regions, GFP_KERNEL);
+			if ((pdata->num_dynamic_regions != 0) && (!pdata->dynamic_region_sizes)) {
+				dev_err(&pdev->dev, "unable to kmalloc\n");
+				kfree(temp_pdata);
+				return -ENOMEM;
+			}
+			of_property_read_u32_array(pdev->dev.of_node,
+				"dynamic-regions-sizes",
+				pdata->dynamic_region_sizes,
+				pdata->num_dynamic_regions);
+		}
+		if (of_property_read_bool(pdev->dev.of_node, "allocate-at-init")) {
+			allocate_at_init = 1;
+		}
 	}
 
 	if (!uioinfo || !uioinfo->name || !uioinfo->version) {
@@ -194,6 +291,7 @@ static int uio_dmem_genirq_probe(struct platform_device *pdev)
 	}
 
 	priv->uioinfo = uioinfo;
+	priv->allocate_at_init = allocate_at_init;
 	spin_lock_init(&priv->lock);
 	priv->flags = 0; /* interrupt is enabled to begin with */
 	priv->pdev = pdev;
@@ -244,6 +342,7 @@ static int uio_dmem_genirq_probe(struct platform_device *pdev)
 		uiomem->memtype = UIO_MEM_PHYS;
 		uiomem->addr = r->start;
 		uiomem->size = resource_size(r);
+		uiomem->name = r->name;
 		++uiomem;
 	}
 
@@ -257,10 +356,10 @@ static int uio_dmem_genirq_probe(struct platform_device *pdev)
 					" dynamic and fixed memory regions.\n");
 			break;
 		}
-		uiomem->memtype = UIO_MEM_DMA_COHERENT;
-		uiomem->dma_device = &pdev->dev;
+		uiomem->memtype = UIO_MEM_PHYS;
 		uiomem->addr = DMEM_MAP_ERROR;
 		uiomem->size = pdata->dynamic_region_sizes[i];
+		uiomem->name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "dmem%d", i);
 		++uiomem;
 	}
 
@@ -283,6 +382,8 @@ static int uio_dmem_genirq_probe(struct platform_device *pdev)
 	uioinfo->open = uio_dmem_genirq_open;
 	uioinfo->release = uio_dmem_genirq_release;
 	uioinfo->priv = priv;
+	if (priv->allocate_at_init == 1)
+		uio_dmem_genirq_alloc(uioinfo);
 
 	/* Enable Runtime PM for this device:
 	 * The device starts in suspended state to allow the hardware to be
@@ -295,7 +396,17 @@ static int uio_dmem_genirq_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	return devm_uio_register_device(&pdev->dev, priv->uioinfo);
+	ret = devm_uio_register_device(&pdev->dev, priv->uioinfo);
+	if (ret) {
+		if (priv->allocate_at_init == 1)
+			uio_dmem_genirq_free(uioinfo);
+	}
+	if (temp_pdata) {
+		if (temp_pdata->dynamic_region_sizes)
+			kfree(temp_pdata->dynamic_region_sizes);
+		kfree(temp_pdata);
+	}
+	return ret;
 }
 
 static int uio_dmem_genirq_runtime_nop(struct device *dev)
@@ -322,9 +433,12 @@ static const struct dev_pm_ops uio_dmem_genirq_dev_pm_ops = {
 
 #ifdef CONFIG_OF
 static const struct of_device_id uio_of_genirq_match[] = {
+	{ /* This is filled with module_parm */ },
 	{ /* empty for now */ },
 };
 MODULE_DEVICE_TABLE(of, uio_of_genirq_match);
+module_param_string(of_id, uio_of_genirq_match[0].compatible, 128, 0);
+MODULE_PARM_DESC(of_id, "Openfirmware id of the device to be handled by uio");
 #endif
 
 static struct platform_driver uio_dmem_genirq = {

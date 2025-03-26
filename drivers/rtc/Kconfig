@@ -1029,6 +1029,13 @@ config RTC_DRV_ALPHA
 	  Direct support for the real-time clock found on every Alpha
 	  system, specifically MC146818 compatibles.  If in doubt, say Y.
 
+config RTC_DRV_GSC
+	tristate "GSC RTC"
+	depends on OF
+	help
+	  This provides support for MC146818A compatible RTC device
+	  for BMC on HPE GSC platforms.
+
 config RTC_DRV_DS1216
 	tristate "Dallas DS1216"
 	depends on SNI_RM

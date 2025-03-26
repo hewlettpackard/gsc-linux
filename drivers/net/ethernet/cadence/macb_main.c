@@ -26,6 +26,7 @@
 #include <linux/platform_device.h>
 #include <linux/phylink.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/of_mdio.h>
 #include <linux/of_net.h>
@@ -97,6 +98,14 @@ struct sifive_fu540_macb_mgmt {
 #define MACB_PM_TIMEOUT  100 /* ms */
 
 #define MACB_MDIO_TIMEOUT	1000000 /* in usecs */
+
+/* NICK TODO: This is a work around, we cannot configure internal phy */
+//page 0
+#define PHY_88E1514_COPPER_CONTROL_REG		0
+#define PHY_88E1514_PAGE_ADDRESS		22
+
+//page 18
+#define PHY_88E1514_GENERAL_CONTROL_REG1	20
 
 /* DMA buffer descriptor might be different size
  * depends on hardware configuration:
@@ -669,6 +678,8 @@ static void macb_mac_config(struct phylink_config *config, unsigned int mode,
 		} else if (bp->caps & MACB_CAPS_MIIONRGMII &&
 			   bp->phy_interface == PHY_INTERFACE_MODE_MII) {
 			ncr |= MACB_BIT(MIIONRGMII);
+		} else if (state->interface == PHY_INTERFACE_MODE_1000BASEX) {
+			ctrl |= GEM_BIT(PCSSEL);
 		}
 	}
 
@@ -679,11 +690,13 @@ static void macb_mac_config(struct phylink_config *config, unsigned int mode,
 	if (old_ncr ^ ncr)
 		macb_or_gem_writel(bp, NCR, ncr);
 
-	/* Disable AN for SGMII fixed link configuration, enable otherwise.
+	/* Disable AN for SGMII / 1000BaseX fixed link configuration, enable otherwise.
 	 * Must be written after PCSSEL is set in NCFGR,
 	 * otherwise writes will not take effect.
 	 */
-	if (macb_is_gem(bp) && state->interface == PHY_INTERFACE_MODE_SGMII) {
+	if (macb_is_gem(bp) && (state->interface == PHY_INTERFACE_MODE_SGMII ||
+				((IS_BUILTIN(CONFIG_HPE_SYNERGY_AN_ERRATA) == 0) &&
+				 (state->interface == PHY_INTERFACE_MODE_1000BASEX)))) {
 		u32 pcsctrl, old_pcsctrl;
 
 		old_pcsctrl = gem_readl(bp, PCSCNTRL);
@@ -816,12 +829,56 @@ static bool macb_phy_handle_exists(struct device_node *dn)
 	return dn != NULL;
 }
 
+/* NICK TODO Setting Internal PHY not acceptable move to U-Boot */
+#ifdef CONFIG_ARCH_HPE_GSC
+static int umac_phy_fixup(struct phy_device *phy_dev)
+{
+	unsigned int value;
+
+	//set phy mode to SGMII to copper
+	//set page to 18 by writing 18 to register 22
+	phy_write(phy_dev, PHY_88E1514_PAGE_ADDRESS, 18);
+	value = phy_read(phy_dev, PHY_88E1514_GENERAL_CONTROL_REG1);
+	value &= ~0x07;
+	value |= 0x01;
+	phy_write(phy_dev, PHY_88E1514_GENERAL_CONTROL_REG1, value);
+
+	//perform mode reset by setting bit 15 in general_control_reg1
+	phy_write(phy_dev, PHY_88E1514_GENERAL_CONTROL_REG1, value | 0x8000);
+
+	do {
+		value = phy_read(phy_dev, PHY_88E1514_GENERAL_CONTROL_REG1);
+	} while (value & 0x8000);
+
+	//after setting the mode, must perform a SW reset
+	phy_write(phy_dev, PHY_88E1514_PAGE_ADDRESS, 0); //set page to 0
+
+	value = phy_read(phy_dev, PHY_88E1514_COPPER_CONTROL_REG);
+	value |= 0x8000;
+	phy_write(phy_dev, PHY_88E1514_COPPER_CONTROL_REG, value);
+
+	do {
+		value = phy_read(phy_dev, PHY_88E1514_COPPER_CONTROL_REG);
+	} while (value & 0x8000);
+
+	return 0;
+}
+#endif
+
 static int macb_phylink_connect(struct macb *bp)
 {
 	struct device_node *dn = bp->pdev->dev.of_node;
 	struct net_device *dev = bp->dev;
 	struct phy_device *phydev;
 	int ret;
+
+	/* NICK TODO Not acceptable, do in U-Boot */
+#ifdef CONFIG_ARCH_HPE_GSC
+	ret = phy_register_fixup_for_uid(0x01410dd1, 0xffffffff,
+					 umac_phy_fixup);
+	if (ret)
+		pr_info("cannot register phy board fixup\n");
+#endif
 
 	if (dn)
 		ret = phylink_of_phy_connect(bp->phylink, dn, 0);
@@ -870,7 +927,8 @@ static int macb_mii_probe(struct net_device *dev)
 	bp->phylink_config.type = PHYLINK_NETDEV;
 	bp->phylink_config.mac_managed_pm = true;
 
-	if (bp->phy_interface == PHY_INTERFACE_MODE_SGMII) {
+	if (bp->phy_interface == PHY_INTERFACE_MODE_SGMII ||
+	    bp->phy_interface == PHY_INTERFACE_MODE_1000BASEX) {
 		bp->phylink_config.poll_fixed_state = true;
 		bp->phylink_config.get_fixed_state = macb_get_pcs_fixed_state;
 	}
@@ -2964,6 +3022,52 @@ static void macb_set_rx_mode(struct net_device *dev)
 	macb_writel(bp, NCFGR, cfg);
 }
 
+#ifdef CONFIG_NET_NCSI
+void macb_ncsi_config(struct net_device *dev, struct macb *bp)
+{
+	struct macb_queue *queue;
+	unsigned long flags;
+	unsigned int q;
+	u32 ctrl;
+
+	spin_lock_irqsave(&bp->lock, flags);
+
+	ctrl = macb_or_gem_readl(bp, NCFGR);
+
+	/* Clear SGMII */
+	ctrl &= ~(GEM_BIT(SGMIIEN));
+
+	/* 100Mbps, Full Duplex & All valid frames will be accepted.*/
+	ctrl |= MACB_BIT(SPD) | MACB_BIT(FD) | MACB_BIT(CAF);
+
+	/* Receive 1536 byte frames, Remove FCS & Ignore RX FCS */
+	ctrl |= MACB_BIT(BIG) | MACB_BIT(DRFCS) | MACB_BIT(DRFCS);
+
+	/* IPG Stretch Enable */
+	ctrl |= GEM_BIT(IPG);
+
+	/* Apply the new configuration */
+	macb_or_gem_writel(bp, NCFGR, ctrl);
+
+	macb_set_tx_clk(bp, SPEED_100);
+
+	/* Initialize rings & buffers as clearing MACB_BIT(TE) in link down
+	 * cleared the pipeline and control registers.
+	 */
+	bp->macbgem_ops.mog_init_rings(bp);
+	macb_init_buffers(bp);
+
+	for (q = 0, queue = bp->queues; q < bp->num_queues; ++q, ++queue)
+		queue_writel(queue, IER,
+			     bp->rx_intr_mask | MACB_TX_INT_FLAGS | MACB_BIT(HRESP));
+
+	/* Enable Rx and Tx */
+	macb_writel(bp, NCR, macb_readl(bp, NCR) | MACB_BIT(RE) | MACB_BIT(TE));
+
+	spin_unlock_irqrestore(&bp->lock, flags);
+}
+#endif
+
 static int macb_open(struct net_device *dev)
 {
 	size_t bufsz = dev->mtu + ETH_HLEN + ETH_FCS_LEN + NET_IP_ALIGN;
@@ -2999,11 +3103,35 @@ static int macb_open(struct net_device *dev)
 	if (err)
 		goto reset_hw;
 
+#ifdef CONFIG_NET_NCSI
+	if (bp->use_ncsi)
+		macb_ncsi_config(dev, bp);
+#else
 	err = macb_phylink_connect(bp);
 	if (err)
 		goto phy_off;
+#endif
 
 	netif_tx_start_all_queues(dev);
+
+#ifdef CONFIG_NET_NCSI
+	if (bp->use_ncsi) {
+		/* If using NC-SI, set our carrier on and start the stack */
+		netif_carrier_on(bp->dev);
+		/* Start the NCSI device */
+		err = ncsi_start_dev(bp->ndev);
+		if (err) {
+			netdev_err(dev, "Unable to start NCSI Dev: %d\n", err);
+			goto reset_hw;
+		} else {
+			netdev_info(dev, "ncsi_start_dev call successful.\n");
+		}
+	} else {
+		err = macb_phylink_connect(bp);
+		if (err)
+			goto phy_off;
+	}
+#endif
 
 	if (bp->ptp_info)
 		bp->ptp_info->ptp_init(dev);
@@ -3039,8 +3167,17 @@ static int macb_close(struct net_device *dev)
 		napi_disable(&queue->napi_tx);
 	}
 
+#ifdef CONFIG_NET_NCSI
+	if (bp->use_ncsi) {
+		ncsi_stop_dev(bp->ndev);
+	} else {
+		phylink_stop(bp->phylink);
+		phylink_disconnect_phy(bp->phylink);
+	}
+#else
 	phylink_stop(bp->phylink);
 	phylink_disconnect_phy(bp->phylink);
+#endif
 
 	phy_power_off(bp->sgmii_phy);
 
@@ -3293,6 +3430,13 @@ static void macb_get_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 {
 	struct macb *bp = netdev_priv(netdev);
 
+#ifdef CONFIG_NET_NCSI
+	if (!bp->phylink) {
+		wol = NULL;
+		return;
+	}
+#endif
+
 	phylink_ethtool_get_wol(bp->phylink, wol);
 	wol->supported |= (WAKE_MAGIC | WAKE_ARP);
 
@@ -3304,6 +3448,11 @@ static int macb_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 {
 	struct macb *bp = netdev_priv(netdev);
 	int ret;
+
+#ifdef CONFIG_NET_NCSI
+	if (!bp->phylink)
+		return -ENODEV;
+#endif
 
 	/* Pass the order to phylink layer */
 	ret = phylink_ethtool_set_wol(bp->phylink, wol);
@@ -3325,6 +3474,21 @@ static int macb_get_link_ksettings(struct net_device *netdev,
 {
 	struct macb *bp = netdev_priv(netdev);
 
+#ifdef CONFIG_NET_NCSI
+	u32 ctrl;
+
+	if (bp->ndev) {
+		//Phylink is not available in this case, we are NCSI, read settings directly
+		ctrl = macb_or_gem_readl(bp, NCFGR);
+		if (ctrl & MACB_BIT(SPD))
+			kset->base.speed = SPEED_100;
+		else
+			kset->base.speed = SPEED_10;
+
+		return 0;
+	}
+#endif
+
 	return phylink_ethtool_ksettings_get(bp->phylink, kset);
 }
 
@@ -3332,6 +3496,11 @@ static int macb_set_link_ksettings(struct net_device *netdev,
 				   const struct ethtool_link_ksettings *kset)
 {
 	struct macb *bp = netdev_priv(netdev);
+
+#ifdef CONFIG_NET_NCSI
+	if (!bp->phylink)
+		return -ENODEV;
+#endif
 
 	return phylink_ethtool_ksettings_set(bp->phylink, kset);
 }
@@ -3943,6 +4112,10 @@ static const struct net_device_ops macb_netdev_ops = {
 	.ndo_features_check	= macb_features_check,
 	.ndo_hwtstamp_set	= macb_hwtstamp_set,
 	.ndo_hwtstamp_get	= macb_hwtstamp_get,
+#ifdef CONFIG_NET_NCSI
+	.ndo_vlan_rx_add_vid	= ncsi_vlan_rx_add_vid,
+	.ndo_vlan_rx_kill_vid	= ncsi_vlan_rx_kill_vid,
+#endif
 };
 
 /* Configure peripheral capabilities according to device tree
@@ -4261,6 +4434,10 @@ static int macb_init(struct platform_device *pdev)
 	val |= macb_dbw(bp);
 	if (bp->phy_interface == PHY_INTERFACE_MODE_SGMII)
 		val |= GEM_BIT(SGMIIEN) | GEM_BIT(PCSSEL);
+
+	if (bp->phy_interface == PHY_INTERFACE_MODE_1000BASEX)
+		val |= GEM_BIT(PCSSEL);
+
 	macb_writel(bp, NCFGR, val);
 
 	return 0;
@@ -4814,6 +4991,17 @@ err_out_phy_exit:
 	return ret;
 }
 
+#ifdef CONFIG_NET_NCSI
+static void macb_ncsi_handler(struct ncsi_dev *nd)
+{
+	if (unlikely(nd->state != ncsi_dev_state_functional))
+		return;
+
+	netdev_info(nd->dev, "NCSI interface %s\n",
+		    nd->link_up ? "up" : "down");
+}
+#endif
+
 static const struct macb_usrio_config sama7g5_usrio = {
 	.mii = 0,
 	.rmii = 1,
@@ -4965,6 +5153,24 @@ static const struct macb_config versal_config = {
 	.usrio = &macb_default_usrio,
 };
 
+static const struct macb_config gsc_config = {
+	.caps = MACB_CAPS_GIGABIT_MODE_AVAILABLE |
+		MACB_CAPS_JUMBO | MACB_CAPS_GEM_HAS_PTP,
+	.dma_burst_length = 8,
+	.clk_init = macb_clk_init,
+	.init = macb_init,
+	.jumbo_max_len = 10240,
+    .usrio = &macb_default_usrio,
+};
+
+static const struct macb_config gsc_rmii_config = {
+	.caps = MACB_CAPS_USRIO_DISABLED,
+	.dma_burst_length = 16,
+	.clk_init = macb_clk_init,
+	.init = macb_init,
+    .usrio = &macb_default_usrio,
+};
+
 static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "cdns,at91sam9260-macb", .data = &at91sam9260_config },
 	{ .compatible = "cdns,macb" },
@@ -4988,10 +5194,74 @@ static const struct of_device_id macb_dt_ids[] = {
 	{ .compatible = "xlnx,zynqmp-gem", .data = &zynqmp_config},
 	{ .compatible = "xlnx,zynq-gem", .data = &zynq_config },
 	{ .compatible = "xlnx,versal-gem", .data = &versal_config},
+	{ .compatible = "hpe,gsc-gem", .data = &gsc_config },
+	{ .compatible = "hpe,gsc-rmii", .data = &gsc_rmii_config },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, macb_dt_ids);
 #endif /* CONFIG_OF */
+
+/* Occasionally on a sudden switch of wiring, the PCS needs to be reset */
+int macb_reset_pcs(struct macb *bp)
+{
+	u32 pcsctrl;
+
+	if (!bp)
+		return -EIO;
+
+	pcsctrl = MACB_READ_PCSCNTRL(bp);
+	pcsctrl |= 0x8000;
+	gem_writel(bp, PCSCNTRL, pcsctrl);
+
+	return readx_poll_timeout(MACB_READ_PCSCNTRL, bp, pcsctrl,
+				  (pcsctrl & 0x8000) == 0, 1,
+				  MACB_MDIO_TIMEOUT);
+}
+
+static ssize_t macb_pcs_reset_show(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	return 0;
+}
+
+static ssize_t macb_pcs_reset_store(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	struct net_device *netdev = dev_get_drvdata(dev);
+	struct macb *bp = netdev_priv(netdev);
+	int rc = 0;
+
+	if (!bp)
+		return -EIO;
+
+	rc = macb_reset_pcs(bp);
+	if (rc)
+		count = rc;
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(macb_pcs_reset);
+
+static int macb_sysfs_init(struct platform_device *pdev)
+{
+	struct net_device *dev = platform_get_drvdata(pdev);
+	struct macb *bp = netdev_priv(dev);
+	int rc;
+
+	if (!bp)
+		return PTR_ERR(bp);
+
+	rc = device_create_file(&pdev->dev, &dev_attr_macb_pcs_reset);
+
+	if (rc)
+		netdev_warn(bp->dev,
+			    "Unable to create device file %d\n", rc);
+
+	return rc;
+}
 
 static const struct macb_config default_gem_config = {
 	.caps = MACB_CAPS_GIGABIT_MODE_AVAILABLE |
@@ -5024,6 +5294,24 @@ static int macb_probe(struct platform_device *pdev)
 	struct macb *bp;
 	int err, val;
 
+#if defined(CONFIG_ARCH_HPE_GSC) && defined(CONFIG_ARCH_HPE_GSC_JEMU_ETHERNET_WA)
+	/* NICK TODO: This workaround only applies to JEMU.
+	 * For SanJac ASIC, this needs to be removed.
+	 */
+	void __iomem *bugfix;
+	u32 bfreg; // could use unsigned int also instead of u32
+
+	bugfix = ioremap(0xC00000D4, 4);
+	if (IS_ERR(bugfix)) {
+		printk(KERN_DEBUG "Bugfix memory not acquired\n");
+		return PTR_ERR(bugfix);
+	}
+
+	bfreg = ioread32(bugfix);
+	bfreg = bfreg & 0xFFFFFF7F; // clear bit 7
+	iowrite32(bfreg, bugfix);
+	pr_info("%s: JEMU ethernet bugfix applied. DO REMOVE this for ASIC.\n", __FUNCTION__);
+#endif
 	mem = devm_platform_get_and_ioremap_resource(pdev, 0, &regs);
 	if (IS_ERR(mem))
 		return PTR_ERR(mem);
@@ -5177,10 +5465,31 @@ static int macb_probe(struct platform_device *pdev)
 	if (err)
 		goto err_out_free_netdev;
 
+#ifdef CONFIG_NET_NCSI
+	if (np && of_get_property(np, "use-ncsi", NULL)) {
+		bp->phylink = NULL;
+
+		dev->hw_features |= NETIF_F_HW_VLAN_CTAG_FILTER;
+
+		dev_info(&pdev->dev, "Using NCSI interface\n");
+		bp->use_ncsi = true;
+		bp->ndev = ncsi_register_dev(dev, macb_ncsi_handler);
+		if (!bp->ndev) {
+			err = -EINVAL;
+			goto err_out_free_netdev;
+		}
+	} else {
+		bp->use_ncsi = false;
+		err = macb_mii_init(bp);
+		if (err)
+			goto err_out_phy_exit;
+	}
+#else
+
 	err = macb_mii_init(bp);
 	if (err)
 		goto err_out_phy_exit;
-
+#endif
 	netif_carrier_off(dev);
 
 	err = register_netdev(dev);
@@ -5197,6 +5506,12 @@ static int macb_probe(struct platform_device *pdev)
 
 	pm_runtime_mark_last_busy(&bp->pdev->dev);
 	pm_runtime_put_autosuspend(&bp->pdev->dev);
+
+	err = macb_sysfs_init(pdev);
+	if (err) {
+		dev_err(&pdev->dev, "Cannot initialize FS required for PCS Reset\n");
+		return err;
+	}
 
 	return 0;
 

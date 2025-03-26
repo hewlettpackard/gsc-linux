@@ -1935,7 +1935,7 @@ config RALINK_WDT
 
 config GXP_WATCHDOG
 	tristate "HPE GXP watchdog support"
-	depends on ARCH_HPE_GXP || COMPILE_TEST
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC || COMPILE_TEST
 	select WATCHDOG_CORE
 	help
 	  Say Y here to include support for the watchdog timer

@@ -1,8 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
-/* Copyright (C) 2022 Hewlett-Packard Development Company, L.P. */
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (C) 2022-2025 Hewlett Packard Enterprise Development LP */
 
 #include <linux/iopoll.h>
 #include <linux/of.h>
+#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi-mem.h>
@@ -89,6 +90,18 @@ static int gxp_spi_read_reg(struct gxp_spi_chip *chip, const struct spi_mem_op *
 	value |= SPIMCTRL_START;
 
 	writeb(value, reg_base + OFFSET_SPIMCTRL);
+#if defined(CONFIG_ARCH_HPE_GSC_TIMER_WA)
+	//Temporary workaround for slow spi-nor operations.
+	//readb_poll_timeout makes the thread sleep if-
+	//the condition (busy bit is not set in SPIMCTRL) is false.
+	//Since the arch timer is not present once this thread sleep, -
+	//its taking more time to get the CPU again.
+	//Preventing this tread from sleeping , by using busy -
+	//loops(till the busy bit is cleared in SPIMCTRL).
+	do {
+		value = readb(reg_base + OFFSET_SPIMCTRL);
+	} while (value & SPIMCTRL_BUSY);
+#endif
 
 	ret = readb_poll_timeout(reg_base + OFFSET_SPIMCTRL, value,
 				 !(value & SPIMCTRL_BUSY),
@@ -129,12 +142,24 @@ static int gxp_spi_write_reg(struct gxp_spi_chip *chip, const struct spi_mem_op 
 	value |= SPIMCTRL_START;
 
 	writeb(value, reg_base + OFFSET_SPIMCTRL);
-
+#if defined(CONFIG_ARCH_HPE_GSC_TIMER_WA)
+	//Temporary workaround for slow spi-nor operations.
+	//readb_poll_timeout makes the thread sleep if-
+	//the condition (busy bit is not set in SPIMCTRL) is false.
+	//Since the arch timer is not present once this thread sleep, -
+	//its taking more time to get the CPU again.
+	//Preventing this tread from sleeping , by using busy -
+	//loops(till the busy bit is cleared in SPIMCTRL).
+	do {
+		value = readb(reg_base + OFFSET_SPIMCTRL);
+	} while (value & SPIMCTRL_BUSY);
+#endif
 	ret = readb_poll_timeout(reg_base + OFFSET_SPIMCTRL, value,
 				 !(value & SPIMCTRL_BUSY),
 				 GXP_SPI_SLEEP_TIME, GXP_SPI_TIMEOUT);
-	if (ret)
+	if (ret) {
 		dev_warn(spifi->dev, "write reg busy time out\n");
+	};
 
 	return ret;
 }
@@ -185,7 +210,18 @@ static ssize_t gxp_spi_write(struct gxp_spi_chip *chip, const struct spi_mem_op 
 	value |= SPIMCTRL_START;
 
 	writeb(value, reg_base + OFFSET_SPIMCTRL);
-
+#if defined(CONFIG_ARCH_HPE_GSC_TIMER_WA)
+	//Temporary workaround for slow spi-nor operations.
+	//readb_poll_timeout makes the thread sleep if-
+	//the condition (busy bit is not set in SPIMCTRL) is false.
+	//Since the arch timer is not present once this thread sleep, -
+	//its taking more time to get the CPU again.
+	//Preventing this tread from sleeping , by using busy -
+	//loops(till the busy bit is cleared in SPIMCTRL).
+	do {
+		value = readb(reg_base + OFFSET_SPIMCTRL);
+	} while (value & SPIMCTRL_BUSY);
+#endif
 	ret = readb_poll_timeout(reg_base + OFFSET_SPIMCTRL, value,
 				 !(value & SPIMCTRL_BUSY),
 				 GXP_SPI_SLEEP_TIME, GXP_SPI_TIMEOUT);
@@ -200,7 +236,7 @@ static ssize_t gxp_spi_write(struct gxp_spi_chip *chip, const struct spi_mem_op 
 static int do_gxp_exec_mem_op(struct spi_mem *mem, const struct spi_mem_op *op)
 {
 	struct gxp_spi *spifi = spi_controller_get_devdata(mem->spi->controller);
-	struct gxp_spi_chip *chip = &spifi->chips[spi_get_chipselect(mem->spi, 0)];
+ 	struct gxp_spi_chip *chip = &spifi->chips[spi_get_chipselect(mem->spi, 0)];
 	int ret;
 
 	if (op->data.dir == SPI_MEM_DATA_IN) {
@@ -236,7 +272,7 @@ static const struct spi_controller_mem_ops gxp_spi_mem_ops = {
 static int gxp_spi_setup(struct spi_device *spi)
 {
 	struct gxp_spi *spifi = spi_controller_get_devdata(spi->controller);
-	unsigned int cs = spi_get_chipselect(spi, 0);
+ 	unsigned int cs = spi_get_chipselect(spi, 0);
 	struct gxp_spi_chip *chip = &spifi->chips[cs];
 
 	chip->spifi = spifi;
