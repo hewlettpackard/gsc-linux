@@ -762,12 +762,39 @@ config SENSORS_GPIO_FAN
 
 config SENSORS_GXP_FAN_CTRL
 	tristate "HPE GXP fan controller"
-	depends on ARCH_HPE_GXP || COMPILE_TEST
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC || COMPILE_TEST
 	help
 	  If you say yes here you get support for GXP fan control functionality.
 
 	  The GXP controls fan function via the CPLD through the use of PWM
 	  registers. This driver reports status and pwm setting of the fans.
+
+config SENSORS_GXP_CORETEMP
+	tristate "GXP Core Temp driver"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC || COMPILE_TEST
+	help
+	  If you say yes here you get support for GXP core temp reading.
+
+config SENSORS_GXP_PSU
+	tristate "GXP PSU driver"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC || COMPILE_TEST
+	depends on I2C
+	help
+	  If you say yes here you get support for PSU Monitoring in HPE
+	  systems.
+
+config SENSORS_GXP_DDR5
+	tristate "GXP DDR5 driver"
+	depends on ARCH_HPE_GXP
+	help
+	  If you say yes here you get support for GXP ddr5 function
+
+config SENSORS_GXP_POWER
+	tristate "GXP POWER Driver"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC || COMPILE_TEST
+	depends on I2C
+	help
+	  If you say yes here you get support for GXP Power control.
 
 config SENSORS_HIH6130
 	tristate "Honeywell Humidicon HIH-6130 humidity/temperature sensor"
@@ -1774,6 +1801,76 @@ config SENSORS_PCF8591
 	  These devices are hard to detect and rarely found on mainstream
 	  hardware. If unsure, say N.
 
+config SENSORS_PECI_CPUTEMP_LEGACY
+	tristate "PECI CPU temperature monitoring client"
+	depends on PECI_LEGACY
+	select MFD_INTEL_PECI_CLIENT
+	help
+	  If you say yes here you get support for the generic Intel PECI
+	  cputemp driver which provides Digital Thermal Sensor (DTS) thermal
+	  readings of the CPU package and CPU cores that are accessible using
+	  the PECI Client Command Suite via the processor PECI client.
+	  Check <file:Documentation/hwmon/peci-cputemp-legacy.rst> for details.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called peci-cputemp.
+
+config SENSORS_PECI_DIMMTEMP_LEGACY
+	tristate "PECI DIMM temperature monitoring client"
+	depends on PECI_LEGACY
+	select MFD_INTEL_PECI_CLIENT
+	help
+	  If you say yes here you get support for the generic Intel PECI hwmon
+	  driver which provides Digital Thermal Sensor (DTS) thermal readings of
+	  DIMM components that are accessible using the PECI Client Command
+	  Suite via the processor PECI client.
+	  Check <file:Documentation/hwmon/peci-dimmtemp-legacy.rst> for details.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called peci-dimmtemp.
+
+config SENSORS_PECI_CPUPOWER_LEGACY
+	tristate "PECI CPU power monitoring support"
+	depends on PECI_LEGACY
+	select MFD_INTEL_PECI_CLIENT
+	help
+	  If you say yes here you get support for the generic Intel PECI
+	  cpupower driver which provides average engergy readings of the CPU package,
+	  current package power limit, maximal (TDP) and minimal power setting using
+	  the PECI Client Command Suite via the processor PECI client.
+	  Check Documentation/hwmon/peci-cpupower-legacy for details.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called peci-cpupower.
+
+config SENSORS_PECI_DIMMPOWER_LEGACY
+	tristate "PECI DIMM power monitoring support"
+	depends on PECI_LEGACY
+	select MFD_INTEL_PECI_CLIENT
+	help
+	  If you say yes here you get support for the generic Intel PECI
+	  dimmpower driver which provides average engergy readings of the memory
+	  package, current power limit, maximal and minimal power setting using
+	  the PECI Client Command Suite via the processor PECI client.
+	  Check Documentation/hwmon/peci-dimmpower-legacy for details.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called peci-dimmpower.
+
+config SENSORS_PECI_PLATFORMPOWER_LEGACY
+	tristate "PECI platform power monitoring support"
+	depends on PECI_LEGACY
+	select MFD_INTEL_PECI_CLIENT
+	help
+	  If you say yes here you get support for the generic Intel PECI
+	  platformpower driver which provides average power of platform,
+	  current platform power limit, maximal and minimal power setting
+	  using the PECI Client Command Suite via the processor PECI client.
+	  Check Documentation/hwmon/peci-platformpower for details.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called peci-platformpower.
+
 source "drivers/hwmon/peci/Kconfig"
 
 source "drivers/hwmon/pmbus/Kconfig"
@@ -2324,6 +2421,12 @@ config SENSORS_TMP513
 
 	  This driver can also be built as a module. If so, the module
 	  will be called tmp513.
+
+config SENSORS_UBM_DRV
+	tristate "UBM DRIVE driver"
+	depends on I2C
+	help
+	  If you say yes here you get support for UBM drv function.
 
 config SENSORS_VEXPRESS
 	tristate "Versatile Express"

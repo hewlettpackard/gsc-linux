@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+comment "GXP media platform drivers"
+
+config VIDEO_GXP
+	tristate "GXP Digital Video Interface driver"
+	depends on VIDEO_DEV
+	depends on V4L_PLATFORM_DRIVERS
+	depends on MEDIA_SUPPORT
+	depends on MEDIA_PLATFORM_SUPPORT
+	depends on MEDIA_CAMERA_SUPPORT
+	select VIDEOBUF2_DMA_CONTIG
+	select V4L_MEM2MEM_DRIVERS
+	help
+	  Support for the GXP Digital Video Interface.
+
+config VIDEO_GXP_THUMBNAIL
+	tristate "GXP THUMBNAIL Video Engine driver"
+	depends on VIDEO_DEV
+	depends on V4L_PLATFORM_DRIVERS
+	depends on MEDIA_SUPPORT
+	depends on MEDIA_PLATFORM_SUPPORT
+	depends on MEDIA_CAMERA_SUPPORT
+	select VIDEOBUF2_DMA_CONTIG
+	select V4L_MEM2MEM_DRIVERS
+	help
+	  Support for the GXP THUMBNAILVideo Engine (VE) embedded in the GXP SOC. The VE can capture video data
+	  from digital sources.

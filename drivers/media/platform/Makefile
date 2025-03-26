@@ -15,6 +15,7 @@ obj-y += cadence/
 obj-y += chips-media/
 obj-y += imagination/
 obj-y += intel/
+obj-y += hpe/
 obj-y += marvell/
 obj-y += mediatek/
 obj-y += microchip/

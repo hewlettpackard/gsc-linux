@@ -1,0 +1,10 @@
+obj-$(CONFIG_HPE_GXP_SOCLIB) += gxp-soclib.o
+obj-$(CONFIG_HPE_GXP_SROM) += gxp-srom.o
+obj-$(CONFIG_HPE_GXP_CHIF) += gxp-chif.o
+obj-$(CONFIG_HPE_GXP_GPIO_MISC) += gxp-gpio-misc.o
+obj-$(CONFIG_HPE_GXP_KW_REG) += gxp-kw-reg.o
+obj-$(CONFIG_HPE_GXP_SE) += gsc-se.o
+obj-$(CONFIG_HPE_GXP_VIRT_EEPROM) += gxp-v-eeprom.o
+obj-$(CONFIG_HPE_GXP_CPU) += gxp-cpu.o
+obj-$(CONFIG_HPE_GXP_DBG) += gxp-dbg.o
+obj-$(CONFIG_HPE_GSC_POWEROFF) += gsc-poweroff.o

@@ -693,7 +693,7 @@ config I2C_GPIO_FAULT_INJECTOR
 
 config I2C_GXP
 	tristate "GXP I2C Interface"
-	depends on ARCH_HPE_GXP || COMPILE_TEST
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC || COMPILE_TEST
 	help
 	  This enables support for GXP I2C interface. The I2C engines can be
 	  either I2C master or I2C slaves.

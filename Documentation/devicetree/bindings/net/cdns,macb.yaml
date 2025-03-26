@@ -58,6 +58,8 @@ properties:
           - cdns,emac                 # Generic
           - cdns,gem                  # Generic
           - cdns,macb                 # Generic
+          - hpe,gsc-gem               # HPE Specific
+          - hpe,gsc-rmii              # HPE Specific
 
       - items:
           - enum:

@@ -16,3 +16,15 @@ config SPI_NXP_SPIFI
 	  SPIFI is a specialized controller for connecting serial SPI
 	  Flash. Enable this option if you have a device with a SPIFI
 	  controller and want to access the Flash as a mtd device.
+
+config SPI_GXP_SPIFI
+	tristate "GXP SPI Flash Interface"
+	depends on ARCH_HPE
+	help
+	  This enables support for GXP SPI Flash Interface
+
+config SPI_GXP_SPIFI_CTRL1
+	tristate "GXP SPI Flash Modular Interface"
+	depends on ARCH_HPE
+	help
+	  This enables support for GXP SPI Flash Interface

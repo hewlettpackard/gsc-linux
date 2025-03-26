@@ -730,6 +730,13 @@ static int at24_probe(struct i2c_client *client)
 	nvmem_config.id = NVMEM_DEVID_AUTO;
 
 	if (device_property_present(dev, "label")) {
+#ifdef CONFIG_EEPROM_AT24_UNIQUE_LABELS
+	/* In accordance to previous Kernel Behavior that implies labels
+	 * should be unique for eeproms, keep previous behavior by
+	 * setting devid to NONE. This contradicts the above comment.
+	 */
+		nvmem_config.id = NVMEM_DEVID_NONE;
+#endif
 		err = device_property_read_string(dev, "label",
 						  &nvmem_config.name);
 		if (err)
