@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
-/* Copyright (C) 2022 Hewlett-Packard Enterprise Development Company, L.P. */
+// SPDX-License-Identifier: GPL-2.0-only
+/* Copyright (C) 2022-2025 Hewlett Packard Enterprise Development LP */
 
 #include <linux/clk.h>
 #include <linux/clockchips.h>
@@ -8,8 +8,10 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
-#include <linux/platform_device.h>
 #include <linux/sched_clock.h>
+#include <linux/cpumask.h>
+#include <linux/cpuhotplug.h>
+#include <linux/clockchips.h>
 
 #define TIMER0_FREQ	1000000
 #define GXP_TIMER_CNT_OFS 0x00
@@ -32,6 +34,7 @@ struct gxp_timer {
 static struct gxp_timer *gxp_timer;
 
 static void __iomem *system_clock __ro_after_init;
+static cpumask_var_t cpu1_mask __cpumask_var_read_mostly;
 
 static inline struct gxp_timer *to_gxp_timer(struct clock_event_device *evt_dev)
 {
@@ -59,6 +62,12 @@ static irqreturn_t gxp_timer_interrupt(int irq, void *dev_id)
 {
 	struct gxp_timer *timer = (struct gxp_timer *)dev_id;
 
+#ifdef CONFIG_ARCH_HPE_GSC_TIMER_WA
+	if(cpumask_test_cpu(1, cpu_online_mask)) {
+		tick_broadcast(cpu1_mask);
+	}
+#endif /* CONFIG_ARCH_HPE_GSC_TIMER_WA */
+
 	if (!(readb_relaxed(timer->control) & MASK_TCS_TC))
 		return IRQ_NONE;
 
@@ -68,6 +77,41 @@ static irqreturn_t gxp_timer_interrupt(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
+
+#ifdef CONFIG_ARCH_HPE_GSC_TIMER_WA
+struct clock_event_device evt2;
+
+static int gxp_time_set_next_event_dummy(unsigned long event, struct clock_event_device *evt_dev)
+{
+	return 0;
+}
+
+static int gxp_timer_starting_cpu(unsigned int cpu)
+{
+	pr_info("CPU[%d]: %s cpu=%d\n", smp_processor_id(), __FUNCTION__, cpu);
+
+	// We would register per cpu clock event device for cpu 0 in driver entry function.
+	if(cpu == 0)
+		return 0;
+
+	evt2.name = "gxp_timer2";
+	evt2.rating = 300;
+	evt2.features = CLOCK_EVT_FEAT_ONESHOT;
+	evt2.set_next_event = gxp_time_set_next_event_dummy;
+	evt2.cpumask = cpumask_of(cpu);
+
+	clockevents_config_and_register(&evt2, TIMER0_FREQ,
+					0xf, 0xffffffff);
+
+	return 0;
+}
+
+static int gxp_timer_dying_cpu(unsigned int cpu)
+{
+	pr_info("CPU[%d]: %s cpu=%d\n", smp_processor_id(), __FUNCTION__, cpu);
+	return 0;
+}
+#endif /* CONFIG_ARCH_HPE_GSC_TIMER_WA */
 
 static int __init gxp_timer_init(struct device_node *node)
 {
@@ -102,6 +146,10 @@ static int __init gxp_timer_init(struct device_node *node)
 		pr_err("Can't map timer base registers");
 		goto err_iomap;
 	}
+
+#ifdef CONFIG_ARCH_HPE_GSC
+	cpumask_set_cpu(1, cpu1_mask);
+#endif /* CONFIG_ARCH_HPE_GSC */
 
 	/* Set the offsets to the clock register and timer registers */
 	gxp_timer->counter = base + GXP_TIMER_CNT_OFS;
@@ -138,6 +186,17 @@ static int __init gxp_timer_init(struct device_node *node)
 		pr_err("%pOFn Can't parse IRQ %d", node, irq);
 		goto err_exit;
 	}
+
+#ifdef CONFIG_ARCH_HPE_GSC_TIMER_WA
+	/*
+	 * TODO: Remove for B0 ASIC.
+	 * Register and immediately configure the timer on
+	 * the boot CPU
+	 */
+	ret = cpuhp_setup_state(CPUHP_AP_ARM_ARCH_TIMER_STARTING,
+				"gxp_timer per cpu callback: starting",
+				gxp_timer_starting_cpu, gxp_timer_dying_cpu);
+#endif /* CONFIG_ARCH_HPE_GSC_TIMER_WA */
 
 	clockevents_config_and_register(&gxp_timer->evt, TIMER0_FREQ,
 					0xf, 0xffffffff);

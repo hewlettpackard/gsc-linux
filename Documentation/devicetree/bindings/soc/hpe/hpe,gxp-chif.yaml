@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/soc/hpe/hpe,gxp-chif.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: HPE CHIF Non Blocking Channel Interface
+
+maintainers:
+  - Nick Hawkins <nick.hawkins@hpe.com>
+
+description:
+  A shared memory interface between OS and SOC that allows for communication.
+
+properties:
+  compatible:
+    const: hpe,gxp-chif
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    chif {
+        compatible = "hpe,gxp-chif";
+        interrupts = <0 3 4>;
+    };

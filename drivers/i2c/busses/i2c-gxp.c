@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (C) 2022 Hewlett-Packard Enterprise Development Company, L.P. */
+/* Copyright (C) 2022-2025 Hewlett Packard Enterprise Development LP */
 
 #include <linux/err.h>
 #include <linux/io.h>
@@ -10,11 +10,19 @@
 #include <linux/regmap.h>
 #include <linux/mfd/syscon.h>
 
-#define GXP_MAX_I2C_ENGINE 10
+#ifdef CONFIG_ARCH_HPE_GXP
+#define MAX_I2C_ENGINE 10
 static const char * const gxp_i2c_name[] = {
-	"gxp-i2c0", "gxp-i2c1", "gxp-i2c2", "gxp-i2c3",
-	"gxp-i2c4", "gxp-i2c5", "gxp-i2c6", "gxp-i2c7",
-	"gxp-i2c8", "gxp-i2c9" };
+        "gxp-i2c0", "gxp-i2c1", "gxp-i2c2", "gxp-i2c3",
+        "gxp-i2c4", "gxp-i2c5", "gxp-i2c6", "gxp-i2c7",
+        "gxp-i2c8", "gxp-i2c9" };
+#else
+#define MAX_I2C_ENGINE 21
+static const char * const gxp_i2c_name[] = {
+        "gxp-i2c0", "gxp-i2c1", "gxp-i2c2", "gxp-i2c3",
+        "gxp-i2c4", "gxp-i2c5", "gxp-i2c6", "gxp-i2c7",
+        "gxp-i2c8", "gxp-i2c9" };
+#endif /* CONFIG_ARCH_HPE_GXP */
 
 /* GXP I2C Global interrupt status/enable register*/
 #define GXP_I2CINTSTAT		0x00
@@ -127,14 +135,25 @@ static int gxp_i2c_master_xfer(struct i2c_adapter *adapter,
 	time_left = wait_for_completion_timeout(&drvdata->completion,
 						adapter->timeout);
 	ret = num - drvdata->msgs_remaining;
-	if (time_left == 0)
+	if (time_left == 0) {
+		switch (drvdata->state) {
+		case GXP_I2C_WDATA_PHASE:
+			break;
+		case GXP_I2C_RDATA_PHASE:
+			break;
+		case GXP_I2C_ADDR_PHASE:
+			break;
+		default:
+			break;
+		}
 		return -ETIMEDOUT;
+	}
 
 	if (drvdata->state == GXP_I2C_ADDR_NACK)
-		return -ENXIO;
+ 		return -ENXIO;
 
-	if (drvdata->state == GXP_I2C_DATA_NACK)
-		return -EIO;
+ 	if (drvdata->state == GXP_I2C_DATA_NACK)
+ 		return -EIO;
 
 	return ret;
 }
@@ -354,6 +373,7 @@ static void gxp_i2c_chk_data_ack(struct gxp_i2c_drvdata *drvdata)
 	writew(value, drvdata->base + GXP_I2CMCMD);
 }
 
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
 static bool gxp_i2c_slave_irq_handler(struct gxp_i2c_drvdata *drvdata)
 {
 	u8 value;
@@ -437,16 +457,25 @@ static bool gxp_i2c_slave_irq_handler(struct gxp_i2c_drvdata *drvdata)
 
 	return true;
 }
+#endif /* CONFIG_I2C_SLAVE */
 
 static irqreturn_t gxp_i2c_irq_handler(int irq, void *_drvdata)
 {
 	struct gxp_i2c_drvdata *drvdata = (struct gxp_i2c_drvdata *)_drvdata;
 	u32 value;
 
+#ifdef CONFIG_ARCH_HPE_GXP
+	/*
+         * Note: In GXP Architecture there is a shared interrupt
+         * for every engine. In  GSC each engine has its own
+         * interrupt
+         */
+
 	/* Check if the interrupt is for the current engine */
 	regmap_read(i2cg_map, GXP_I2CINTSTAT, &value);
 	if (!(value & BIT(drvdata->engine)))
 		return IRQ_NONE;
+#endif
 
 	value = readb(drvdata->base + GXP_I2CEVTERR);
 
@@ -511,6 +540,13 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 	int rc;
 	struct i2c_adapter *adapter;
 
+#ifdef CONFIG_ARCH_HPE_GXP
+	/*
+         * Note: In GXP Architecture there is a shared interrupt
+         * for every engine. In  GSC each engine has its own
+         * interrupt
+         */
+
 	if (!i2cg_map) {
 		i2cg_map = syscon_regmap_lookup_by_phandle(pdev->dev.of_node,
 							   "hpe,sysreg");
@@ -522,6 +558,7 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 		/* Disable interrupt */
 		regmap_update_bits(i2cg_map, GXP_I2CINTEN, 0x00000FFF, 0);
 	}
+#endif
 
 	drvdata = devm_kzalloc(&pdev->dev, sizeof(*drvdata),
 			       GFP_KERNEL);
@@ -539,7 +576,7 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 	/* Use physical memory address to determine which I2C engine this is. */
 	drvdata->engine = ((size_t)drvdata->base & 0xf00) >> 8;
 
-	if (drvdata->engine >= GXP_MAX_I2C_ENGINE) {
+	if (drvdata->engine >= MAX_I2C_ENGINE) {
 		return dev_err_probe(&pdev->dev, -EINVAL, "i2c engine% is unsupported\n",
 			drvdata->engine);
 	}
@@ -558,10 +595,18 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 
 	gxp_i2c_init(drvdata);
 
+#ifdef CONFIG_ARCH_HPE_GXP
+        /*
+         * Note: In GXP Architecture there is a shared interrupt
+         * for every engine. In  GSC each engine has its own
+         * interrupt
+         */
 	/* Enable interrupt */
 	regmap_update_bits(i2cg_map, GXP_I2CINTEN, BIT(drvdata->engine),
 			   BIT(drvdata->engine));
+#endif
 
+	/* NICK TODO: Seems like we need a different compatible */
 	adapter = &drvdata->adapter;
 	i2c_set_adapdata(adapter, drvdata);
 

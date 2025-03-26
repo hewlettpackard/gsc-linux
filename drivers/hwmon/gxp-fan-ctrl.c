@@ -1,58 +1,73 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (C) 2022 Hewlett-Packard Enterprise Development Company, L.P. */
+/* Copyright (C) 2023-2025 Hewlett Packard Enterprise Development LP */
 
 #include <linux/bits.h>
 #include <linux/err.h>
 #include <linux/hwmon.h>
 #include <linux/io.h>
+#include <linux/of.h>
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
+#include <linux/regmap.h>
+#include <linux/mfd/syscon.h>
 
-#define OFS_FAN_INST	0 /* Is 0 because plreg base will be set at INST */
-#define OFS_FAN_FAIL	2 /* Is 2 bytes after base */
-#define OFS_SEVSTAT	0 /* Is 0 because fn2 base will be set at SEVSTAT */
+#define OFS_FAN_INST	0	/* Is 0 because plreg base will be set at INST */
+#define OFS_FAN_FAIL	2	/* Is 2 bytes after base */
+#define OFS_SEVSTAT	0	/* Is 0 because fn2 base will be set at SEVSTAT */
 #define POWER_BIT	24
+#define OFFSET_PWM0DUTY	0x10	/* Offset to the pwm configuration register of fan 1 from base */
 
 struct gxp_fan_ctrl_drvdata {
 	void __iomem	*base;
-	void __iomem	*plreg;
-	void __iomem	*fn2;
+	struct regmap	*xreg_map;
+	struct regmap	*fn2_map;
 };
 
 static bool fan_installed(struct device *dev, int fan)
 {
 	struct gxp_fan_ctrl_drvdata *drvdata = dev_get_drvdata(dev);
-	u8 val;
+	unsigned int reg;
 
-	val = readb(drvdata->plreg + OFS_FAN_INST);
+	if (!of_property_read_bool(dev->of_node, "gxp-old")) {
+		regmap_read(drvdata->xreg_map, 0x78, &reg);
+		reg = reg >> 16;
+	} else {
+		regmap_read(drvdata->xreg_map, 0x24, &reg);
+		reg = reg >> 24;
+	}
 
-	return !!(val & BIT(fan));
+	return !!(reg & BIT(fan));
 }
 
 static long fan_failed(struct device *dev, int fan)
 {
 	struct gxp_fan_ctrl_drvdata *drvdata = dev_get_drvdata(dev);
-	u8 val;
+	unsigned int reg;
 
-	val = readb(drvdata->plreg + OFS_FAN_FAIL);
+	if (!of_property_read_bool(dev->of_node, "gxp-old")) {
+		regmap_read(drvdata->xreg_map, 0x7C, &reg);
+	} else {
+		regmap_read(drvdata->xreg_map, 0x28, &reg);
+		reg = reg >> 8;
+	}
 
-	return !!(val & BIT(fan));
+	return !!(reg & BIT(fan));
 }
 
 static long fan_enabled(struct device *dev, int fan)
 {
 	struct gxp_fan_ctrl_drvdata *drvdata = dev_get_drvdata(dev);
-	u32 val;
+	unsigned int reg;
 
 	/*
 	 * Check the power status as if the platform is off the value
 	 * reported for the PWM will be incorrect. Report fan as
 	 * disabled.
 	 */
-	val = readl(drvdata->fn2 + OFS_SEVSTAT);
+	regmap_read(drvdata->fn2_map, 0x70, &reg);
 
-	return !!((val & BIT(POWER_BIT)) && fan_installed(dev, fan));
+	return !!((reg & BIT(POWER_BIT)) && fan_installed(dev, fan));
 }
 
 static int gxp_pwm_write(struct device *dev, u32 attr, int channel, long val)
@@ -63,7 +78,7 @@ static int gxp_pwm_write(struct device *dev, u32 attr, int channel, long val)
 	case hwmon_pwm_input:
 		if (val > 255 || val < 0)
 			return -EINVAL;
-		writeb(val, drvdata->base + channel);
+		writeb(val, drvdata->base + OFFSET_PWM0DUTY + channel);
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -98,7 +113,7 @@ static int gxp_fan_read(struct device *dev, u32 attr, int channel, long *val)
 static int gxp_pwm_read(struct device *dev, u32 attr, int channel, long *val)
 {
 	struct gxp_fan_ctrl_drvdata *drvdata = dev_get_drvdata(dev);
-	u32 reg;
+	unsigned int reg;
 
 	/*
 	 * Check the power status of the platform. If the platform is off
@@ -106,10 +121,10 @@ static int gxp_pwm_read(struct device *dev, u32 attr, int channel, long *val)
 	 * report a PWM of zero.
 	 */
 
-	reg = readl(drvdata->fn2 + OFS_SEVSTAT);
+	regmap_read(drvdata->fn2_map, 0x70, &reg);
 
 	if (reg & BIT(POWER_BIT))
-		*val = fan_installed(dev, channel) ? readb(drvdata->base + channel) : 0;
+		*val = fan_installed(dev, channel) ? readb(drvdata->base + OFFSET_PWM0DUTY + channel) : 0;
 	else
 		*val = 0;
 
@@ -168,7 +183,7 @@ static const struct hwmon_ops gxp_fan_ctrl_ops = {
 	.write = gxp_fan_ctrl_write,
 };
 
-static const struct hwmon_channel_info * const gxp_fan_ctrl_info[] = {
+static const struct hwmon_channel_info *gxp_fan_ctrl_info[] = {
 	HWMON_CHANNEL_INFO(fan,
 			   HWMON_F_FAULT | HWMON_F_ENABLE,
 			   HWMON_F_FAULT | HWMON_F_ENABLE,
@@ -199,6 +214,7 @@ static const struct hwmon_chip_info gxp_fan_ctrl_chip_info = {
 static int gxp_fan_ctrl_probe(struct platform_device *pdev)
 {
 	struct gxp_fan_ctrl_drvdata *drvdata;
+	struct resource *res;
 	struct device *dev = &pdev->dev;
 	struct device *hwmon_dev;
 
@@ -207,22 +223,25 @@ static int gxp_fan_ctrl_probe(struct platform_device *pdev)
 	if (!drvdata)
 		return -ENOMEM;
 
-	drvdata->base = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	drvdata->base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(drvdata->base))
 		return dev_err_probe(dev, PTR_ERR(drvdata->base),
 				     "failed to map base\n");
 
-	drvdata->plreg = devm_platform_ioremap_resource_byname(pdev,
-							       "pl");
-	if (IS_ERR(drvdata->plreg))
-		return dev_err_probe(dev, PTR_ERR(drvdata->plreg),
-				     "failed to map plreg\n");
+	drvdata->xreg_map = syscon_regmap_lookup_by_phandle(dev->of_node,
+							    "hpe,xreg");
+	if (IS_ERR(drvdata->xreg_map)) {
+		return dev_err_probe(dev, PTR_ERR(drvdata->xreg_map),
+				       "failed to map hpe,xreg\n");
+	}
 
-	drvdata->fn2 = devm_platform_ioremap_resource_byname(pdev,
-							     "fn2");
-	if (IS_ERR(drvdata->fn2))
-		return dev_err_probe(dev, PTR_ERR(drvdata->fn2),
-				     "failed to map fn2\n");
+	drvdata->fn2_map = syscon_regmap_lookup_by_phandle(dev->of_node,
+							   "hpe,fn2reg");
+	if (IS_ERR(drvdata->fn2_map)) {
+		return dev_err_probe(dev, PTR_ERR(drvdata->fn2_map),
+				     "failed to map hpe,fn2reg\n");
+	}
 
 	hwmon_dev = devm_hwmon_device_register_with_info(&pdev->dev,
 							 "hpe_gxp_fan_ctrl",

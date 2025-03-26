@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/soc/hpe/generic-uio.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: HPE Generic UIO
+
+maintainers:
+  - Nick Hawkins <nick.hawkins@hpe.com>
+
+description:
+  Allows register access in OS. DO NOT COMMIT this is to work
+  around checkpatch.pl warnings.
+
+properties:
+  compatible:
+    const: hpe,gsc-se
+
+  reg:
+    maxItems: 1
+
+  reg-names:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    dptxreg@c00020000 {
+        compatible = "generic-uio";
+        reg = <0xcefd0000 0x10000>;
+        interrupts = <0 3 4>;
+    };
