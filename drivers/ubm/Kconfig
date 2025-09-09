@@ -4,7 +4,7 @@
 #
 
 menuconfig UBM
-	tristate "Universal Sotrage Backplane Management support"
+	tristate "Universal Storage Backplane Management support"
 	depends on HAS_IOMEM
 	default y
 	help

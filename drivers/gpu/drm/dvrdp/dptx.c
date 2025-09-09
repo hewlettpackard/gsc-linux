@@ -167,7 +167,7 @@ static int common_phy_register_read(unsigned int reg, unsigned int *data)
     //TODO: Change this later to common phy read call
 
     //dummy test read
-    unsigned int test_read = 0;
+	unsigned int test_read __maybe_unused = 0;
 
     asicregister_write32(R_DPTX_BASE+PHY_PIP_CONFIG_REG_INDEX_ADDR, 0x80f8);
     test_read = asicregister_read32(R_DPTX_BASE+PHY_PIP_CONFIG_REG_DATA_ADDR);

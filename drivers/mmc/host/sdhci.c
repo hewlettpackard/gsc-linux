@@ -1979,7 +1979,7 @@ void sdhci_enable_clk(struct sdhci_host *host, u16 clk)
 {
 	ktime_t timeout;
 
-#if defined(CONFIG_GSC_B0_BUILD) && defined(CONFIG_ARCH_HPE_GSC)
+#if defined(CONFIG_ARCH_HPE_GSC)
 	/* The GSC ASIC does not have a clock generator. They have hooked up freq_sel
 	 * directly to the clock muxes and feed in signal.
 	 * The following modes do line up: SDR50 (50MHz) and Identification Mode (~391KHz)

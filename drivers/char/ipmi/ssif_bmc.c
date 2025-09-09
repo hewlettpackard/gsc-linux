@@ -52,7 +52,6 @@ static int send_ssif_bmc_response(struct ssif_bmc_ctx *ssif_bmc, bool non_blocki
 {
 	unsigned long flags;
 	int ret;
-	int i;
 	// let's serialize as much as we can
 
 	if (!non_blocking) {

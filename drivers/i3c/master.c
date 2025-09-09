@@ -311,7 +311,7 @@ static int i3c_device_match(struct device *dev, const struct device_driver *drv)
 		return 0;
 
 	i3cdev = dev_to_i3cdev(dev);
-	i3cdrv = drv_to_i3cdrv(drv);
+	i3cdrv = drv_to_i3cdrv((struct device_driver *)drv);
 	if (i3c_device_match_id(i3cdev, i3cdrv->id_table))
 		return 1;
 

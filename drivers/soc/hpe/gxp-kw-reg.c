@@ -488,7 +488,7 @@ static int gxp_kw_reg_probe(struct platform_device *pdev)
 	struct gxp_kw_reg_drvdata *drvdata;
 	unsigned char idx = 0u;
 
-	pr_info("gxp-kw-reg driver probe: number of kw registers = %d\n", NUMBER_OF_REG_LIST);
+	pr_info("gxp-kw-reg driver probe: number of kw registers = %zu\n", NUMBER_OF_REG_LIST);
 	drvdata = devm_kzalloc(&pdev->dev, sizeof(struct gxp_kw_reg_drvdata),GFP_KERNEL);
 	if (!drvdata) {
 		pr_err("%s: gxp-kw-reg : kzalloc failed\n", __func__);
