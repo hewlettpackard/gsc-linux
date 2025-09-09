@@ -1466,14 +1466,14 @@ static const struct i3c_master_controller_ops i3c_hub_i3c_ops_smbus = {
 	.i2c_xfers = i3c_hub_i2c_xfers_smbus,
 };
 
-int i3c_hub_logic_register(struct i3c_master_controller *controller,
-			   struct device *parent)
+static int i3c_hub_logic_register(struct i3c_master_controller *controller,
+				  struct device *parent)
 {
 	return i3c_master_register(controller, parent, &i3c_hub_i3c_ops, false);
 }
 
-int i3c_hub_logic_register_smbus(struct i3c_master_controller *controller,
-				 struct device *parent)
+static int i3c_hub_logic_register_smbus(struct i3c_master_controller *controller,
+					struct device *parent)
 {
 	return i3c_master_register(controller, parent, &i3c_hub_i3c_ops_smbus, false);
 }

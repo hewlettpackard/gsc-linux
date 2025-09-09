@@ -787,7 +787,7 @@ static int gxp_xreg_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to get XReg Interrupt base offset - %d\n", ret);
 		return ret;
 	}
-	
+
 	drvdata->intoffset->int_base = int_base_offset[1];
 	drvdata->intoffset->int_grp_base = int_base_offset[0];
 

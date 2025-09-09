@@ -45,7 +45,7 @@ static void gxp_response_nack(struct ssif_bmc_ctx *ssif_bmc)
 	writeb(GXP_I2CD_M_S_RX_CMD_LAST, drvdata->base + GXP_I2CSCMD);
 }
 
-static int ssif_bmc_probe(struct i2c_client *client, const struct i2c_device_id *id)
+static int ssif_bmc_probe(struct i2c_client *client)
 {
 	struct ssif_bmc_ctx *ssif_bmc;
 
@@ -59,7 +59,7 @@ static int ssif_bmc_probe(struct i2c_client *client, const struct i2c_device_id 
 	return 0;
 }
 
-void ssif_bmc_remove(struct i2c_client *client)
+static void ssif_bmc_remove(struct i2c_client *client)
 {
 	struct ssif_bmc_ctx *ssif_bmc = i2c_get_clientdata(client);
 

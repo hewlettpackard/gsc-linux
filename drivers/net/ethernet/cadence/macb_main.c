@@ -3020,7 +3020,16 @@ static void macb_set_rx_mode(struct net_device *dev)
 }
 
 #ifdef CONFIG_NET_NCSI
-void macb_ncsi_config(struct net_device *dev, struct macb *bp)
+static void macb_ncsi_handler(struct ncsi_dev *nd)
+{
+	if (unlikely(nd->state != ncsi_dev_state_functional))
+		return;
+
+	netdev_info(nd->dev, "NCSI interface %s\n",
+		    nd->link_up ? "up" : "down");
+}
+
+static void macb_ncsi_config(struct net_device *dev, struct macb *bp)
 {
 	struct macb_queue *queue;
 	unsigned long flags;
@@ -3167,6 +3176,12 @@ static int macb_close(struct net_device *dev)
 #ifdef CONFIG_NET_NCSI
 	if (bp->use_ncsi) {
 		ncsi_stop_dev(bp->ndev);
+		ncsi_unregister_dev(bp->ndev);
+		bp->ndev = ncsi_register_dev(dev, macb_ncsi_handler);
+		if (!bp->ndev) {
+			netdev_err(dev, "Failed to Re-Register NCSI\n");
+			return -1;
+		}
 	} else {
 		phylink_stop(bp->phylink);
 		phylink_disconnect_phy(bp->phylink);
@@ -4988,17 +5003,6 @@ err_out_phy_exit:
 	return ret;
 }
 
-#ifdef CONFIG_NET_NCSI
-static void macb_ncsi_handler(struct ncsi_dev *nd)
-{
-	if (unlikely(nd->state != ncsi_dev_state_functional))
-		return;
-
-	netdev_info(nd->dev, "NCSI interface %s\n",
-		    nd->link_up ? "up" : "down");
-}
-#endif
-
 static const struct macb_usrio_config sama7g5_usrio = {
 	.mii = 0,
 	.rmii = 1,
@@ -5199,7 +5203,7 @@ MODULE_DEVICE_TABLE(of, macb_dt_ids);
 #endif /* CONFIG_OF */
 
 /* Occasionally on a sudden switch of wiring, the PCS needs to be reset */
-int macb_reset_pcs(struct macb *bp)
+static int macb_reset_pcs(struct macb *bp)
 {
 	u32 pcsctrl;
 
@@ -5242,6 +5246,72 @@ static ssize_t macb_pcs_reset_store(struct device *dev,
 
 static DEVICE_ATTR_RW(macb_pcs_reset);
 
+static ssize_t macb_pcs_status_show(struct device *dev,
+				    struct device_attribute *attr,
+				    char *buf)
+{
+	struct net_device *netdev = dev_get_drvdata(dev);
+	struct macb *bp = netdev_priv(netdev);
+	u32 pcssts;
+	ssize_t ret;
+
+	if (!bp)
+		return -EIO;
+	pcssts = gem_readl(bp, PCSSTS);
+	ret = sprintf(buf, "0x%08x", pcssts);
+	return ret;
+}
+
+static ssize_t macb_pcs_status_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	return count;
+}
+
+static DEVICE_ATTR_RW(macb_pcs_status);
+
+#ifdef CONFIG_NET_NCSI
+static ssize_t macb_ncsi_status_show(struct device *dev,
+				     struct device_attribute *attr,
+				     char *buf)
+{
+	struct net_device *netdev = dev_get_drvdata(dev);
+	struct macb *bp = netdev_priv(netdev);
+	ssize_t ret = 0;
+
+	if (bp->ndev)
+		ret = sprintf(buf, "%d", bp->ndev->is_replying);
+
+	return ret;
+}
+
+static ssize_t macb_ncsi_status_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	return count;
+}
+
+static DEVICE_ATTR_RW(macb_ncsi_status);
+
+static ssize_t macb_ncsi_state_show(struct device *dev,
+				    struct device_attribute *attr,
+				    char *buf)
+{
+	struct net_device *netdev = dev_get_drvdata(dev);
+	struct macb *bp = netdev_priv(netdev);
+	ssize_t ret = 0;
+
+	if (bp->ndev)
+		ret = sprintf(buf, "%d", bp->ndev->state);
+
+	return ret;
+}
+
+static DEVICE_ATTR_RO(macb_ncsi_state);
+#endif
+
 static int macb_sysfs_init(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
@@ -5256,6 +5326,27 @@ static int macb_sysfs_init(struct platform_device *pdev)
 	if (rc)
 		netdev_warn(bp->dev,
 			    "Unable to create device file %d\n", rc);
+
+	rc = device_create_file(&pdev->dev, &dev_attr_macb_pcs_status);
+	if (rc)
+		netdev_warn(bp->dev,
+			    "Unable to create device status file %d\n", rc);
+
+	#ifdef CONFIG_NET_NCSI
+	if (bp->use_ncsi) {
+		rc = device_create_file(&pdev->dev, &dev_attr_macb_ncsi_status);
+
+		if (rc)
+			netdev_warn(bp->dev,
+				    "Unable to create device ncsi status file %d\n", rc);
+
+		rc = device_create_file(&pdev->dev, &dev_attr_macb_ncsi_state);
+
+		if (rc)
+			netdev_warn(bp->dev,
+				    "Unable to create device ncsi state file %d\n", rc);
+	}
+	#endif
 
 	return rc;
 }

@@ -215,9 +215,10 @@ static void dpcd_power(uint8_t cVal)
  *     Debounce the HPD interrupt.
  *
  **********************************************************************************************************/
-void debounce_hpd(void)
+static void debounce_hpd(void)
 {
 	uint32_t done = 0;
+	int ret;
 
 	/// \brief Just received an interrupt for state modification
 	///        Initially, wait 1 ms and then check if another interrupt
@@ -227,8 +228,12 @@ void debounce_hpd(void)
 	while (!done) {
 		/// Clear any new interrupts
 		if (down_trylock(&gHPDSignal) == 0) {
-			down_trylock(&gHPDSignal_HPD);
-			down_trylock(&gHPDSignal_IRQ);
+			ret = down_trylock(&gHPDSignal_HPD);
+			if (ret != 0)
+				pr_warn("DP: %s: gHPDSignal_HPD not set\n", __func__);
+			ret = down_trylock(&gHPDSignal_IRQ);
+			if (ret != 0)
+				pr_warn("DP: %s: gHPDSignal_IRQ not set\n", __func__);
 			/// \note More interrupts have occurred; clear the pending interrupts
 			/// \todo Wait here until connection stops bouncing
 			//usleep(2*100);
@@ -268,7 +273,6 @@ static void main_init(const uint8_t cState)
 int dp_init(void)
 {
 	uint8_t  link_rate;
-	uint16_t reg;
 
 	r_dptx_base = ioremap(DP_TX_BASE, 0x1000);
 	if (r_dptx_base == NULL) {
@@ -332,10 +336,10 @@ void hotplug_func(void)
 	uint32_t            retv = 0;
 	static              edid_t g_edid;
 	edid_t              *pEdid = &g_edid;
-	uint8_t             *pBuf;
 	uint8_t             buf[sizeof(edid_t)];
 	dpcd_rx_capabilty_t link_cap;
 	uint16_t reg;
+	int ret;
 
 	pr_debug("DP: Entered hotplug function\n");
 
@@ -364,7 +368,6 @@ void hotplug_func(void)
 					pr_err("DP: WARNING: Failed to read EDID retv=0x%x\n", retv);
 					//pEdid = (edid_t*)g_edid_generic;//TODO: Add back later
 				} //TODO: Check later }else{
-				pBuf = (uint8_t *)pEdid;
 				for (i = 0; i < sizeof(edid_t); i++) {
 					//fprintf(stderr, "0x%02x,",pBuf[i]);
 					//pr_debug("0x%02x,",pBuf[i]);//TODO: Add back later
@@ -475,7 +478,9 @@ void hotplug_func(void)
 			pr_debug("\nDP: %s: DP link training completed\n", __func__);
 			//DUMP_DEI()
 		} else {
-			down_trylock(&gHPDSignal_HPD);
+			ret = down_trylock(&gHPDSignal_HPD);
+			if (ret != 0)
+				pr_warn("DP: %s: gHPDSignal_HPD not set\n", __func__);
 			pr_debug("\nDP: DP disconnected\n");
 			reg = asicregister_read16(GD_MCFG_GDCFG);
 			/// Disable auto programmer

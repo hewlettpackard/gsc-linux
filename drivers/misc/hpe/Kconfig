@@ -1,9 +1,3 @@
-config GXP_PECI_WIRE
-	bool "GXP PECI-Wire Support"
-	depends on ARCH_HPE_GXP || ARCH_HPE_GSC
-	help
-	  Say yes here to add support for the GXP PECI-WIRE driver
-
 config GSC_COMMON_PHY
 	bool "Common Phy Support"
 	depends on ARCH_HPE_GSC

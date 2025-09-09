@@ -168,24 +168,11 @@ static int common_phy_poweron_init(void)
     common_phy_register_write(0x4021, 0x00);
     common_phy_register_write(0x4221, 0x00);
 
-#ifndef CONFIG_GSC_B0_BUILD
-    /* RX Lane Fixes A0 */
-    common_phy_register_write(0x4043, 0x02);
-    common_phy_register_write(0x4243, 0x02);
-    common_phy_register_write(0x4443, 0x02);
-    common_phy_register_write(0x4643, 0x02);
-    common_phy_register_write(0x405D, 0xF700);
-    common_phy_register_write(0x425D, 0xF700);
-    common_phy_register_write(0x445D, 0xF700);
-    common_phy_register_write(0x465D, 0xF700);
-
-#else
     /* RX Lane Fixes B0 */
     common_phy_register_write(0x4026, 0x124A);
     common_phy_register_write(0x4226, 0x124A);
     common_phy_register_write(0x4226, 0x124A);
     common_phy_register_write(0x4626, 0x124A);
-#endif
 
     /* Disable CDB Bus (Internal PHY Registers) */
     common_phy_register_write(kWRAP_CDB_BUSSEL, 0x00);

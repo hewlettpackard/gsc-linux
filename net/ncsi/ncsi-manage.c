@@ -869,8 +869,26 @@ static bool ncsi_channel_is_tx(struct ncsi_dev_priv *ndp,
 			continue;
 		NCSI_FOR_EACH_CHANNEL(np, channel) {
 			ncm = &channel->modes[NCSI_MODE_TX_ENABLE];
-			if (ncm->enable)
+			if (ncm->enable) {
+				/* iLO customisation
+				 * Below channel id check has been added to handle cases
+				 * where 0x06-Enable Channel Network TX command was being
+				 * skipped. Issue is encountered in NCSI driver where error
+				 * response 0x0001 from NIC for 0x07-Disable Network Tx
+				 * command in suspend channel path is not handled &
+				 * subsequently while configuring channel driver is
+				 * skipping 0x06-Enable Channel Network TX causing
+				 * inaccessibility of iLO
+				 */
+				if (channel->id == nc->id) {
+					netdev_info(ndp->ndev.dev,
+						    "NCSI: Found candidate channel %d with TX enabled\n",
+						    channel->id);
+					continue;
+				}
+				/* end of iLO customisation */
 				return false;
+			}
 		}
 	}
 
@@ -1783,6 +1801,7 @@ struct ncsi_dev *ncsi_register_dev(struct net_device *dev,
 	nd = &ndp->ndev;
 	nd->state = ncsi_dev_state_registered;
 	nd->dev = dev;
+	nd->is_replying = 0;
 	nd->handler = handler;
 	ndp->pending_req_num = 0;
 	INIT_LIST_HEAD(&ndp->channel_queue);
