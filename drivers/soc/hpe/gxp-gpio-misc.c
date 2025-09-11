@@ -102,7 +102,7 @@ static int misc_gpio_direction_output(struct gpio_chip *chip,
 	return ret;
 }
 
-const static struct gpio_chip gpio_misc_chip = {
+static const struct gpio_chip gpio_misc_chip = {
 	.label			= "gxp_vuhc",
 	.owner			= THIS_MODULE,
 	.get			= misc_gpio_get,

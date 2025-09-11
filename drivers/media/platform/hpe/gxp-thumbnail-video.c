@@ -892,7 +892,7 @@ static int gxp_video_init(struct gxp_video *video)
 
 
 
-int gxpvd_probe(struct platform_device *pdev)
+static int gxpvd_probe(struct platform_device *pdev)
 {
 	struct resource *res;
 	int err;

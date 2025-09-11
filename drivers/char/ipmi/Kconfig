@@ -183,10 +183,9 @@ config HPE_KCS_IPMI_BMC
 	  provides the access of KCS IO space for BMC side.
 
 config HPE_SSIF_IPMI_BMC
-	depends on ARCH_HPE_GXP
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC
 	depends on I2C
 	select SSIF_IPMI_BMC
-	default y
 	tristate "HPE GXP SSIF IPMI BMC driver"
 	help
 	  Provides a driver for the SSIF IPMI interface found on

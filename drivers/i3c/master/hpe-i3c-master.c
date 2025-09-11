@@ -7,6 +7,7 @@
 #include <linux/errno.h>
 #include <linux/i3c/master.h>
 #include <linux/interrupt.h>
+#include <linux/random.h>
 #include <linux/ioport.h>
 #include <linux/iopoll.h>
 #include <linux/list.h>
@@ -17,6 +18,9 @@
 #include <linux/slab.h>
 #include <linux/dma-mapping.h>
 #include <linux/debugfs.h>
+#include <linux/sysfs.h>
+#include <linux/mutex.h>
+#include "linux/gxp-soclib.h"
 
 // different phases for different types of i3c transfers
 enum {
@@ -78,6 +82,10 @@ enum {
 	#define MASK_PARITY_ERROR_EVENT     0x10
 #define GSC_I3C_COMMAND                 0x83
 #define GSC_I3C_DYN_ADDR                0x90
+#define GSC_I3C_PIDLO                   0xa0
+#define GSC_I3C_PIDHI                   0xa4
+#define GSC_I3C_LBCR                    0xa6
+#define GSC_I3C_LDCR                    0xa7
 #define GSC_I3C_FREQ_DIVIDER            0xaa
 #define GSC_I3C_TARGET_PROVISIONAL_ID0  0xb8
 #define GSC_I3C_TARGET_PROVISIONAL_ID1  0xbc
@@ -126,12 +134,16 @@ struct hpe_i3c_master {
 	u16 maxdevs;
 	u32 free_pos;
 	u16 data_count;
+	u8 ccc_payload[32];
+	u8 ccc_payload_len;
 	void __iomem *regs;
 	char version[5];
 	char type[5];
 	struct i3c_dev_desc *ibi_dev[MAX_DEVS];
 	u8 addrs[MAX_DEVS];
 	u8 i3c_dev_cnt;
+	u8 i3c_dev_discovered_cnt;
+	u8 free_pos_index;
 	struct i3c_dev_desc *i3c_desc[MAX_DEVS];
 	u64 device_addr_table[MAX_DEVS];
 	u64 target_prov_id[MAX_DEVS];
@@ -141,6 +153,7 @@ struct hpe_i3c_master {
 	unsigned char trans_type;
 	uint8_t engine;
 	spinlock_t devs_lock;
+	struct mutex mutex;
 
 	int i3c_error;
 	struct hpe_i3c_ibi_payload i3c_ibi_payload[MAX_DEVS];
@@ -155,7 +168,7 @@ struct hpe_i3c_i2c_dev_data {
 	struct i3c_generic_ibi_pool *ibi_pool;
 };
 
-u8 GetParityBit(u8 dynAddr)
+static u8 GetParityBit(u8 dynAddr)
 {
 	u8 parityBit = 0;
 	int  index;
@@ -416,7 +429,9 @@ static int hpe_i3c_master_bus_init(struct i3c_master_controller *m)
 	struct i3c_device_info info = { };
 	int ret;
 	u8 val = 0;
+	u16 i3c_freq = 0, reg = 0, pid_hi = 0;
 	void __iomem *iopbase;
+	u32 pid_lo = 0;
 
 	// set voltage level to 1V for i3c engine 8 and 9 and 1.8V for all other engines
 	iopbase = ioremap(0xc0000000, 0x1000);
@@ -441,16 +456,35 @@ static int hpe_i3c_master_bus_init(struct i3c_master_controller *m)
 	// set up edge control
 	writeb(0x00, master->regs + GSC_I2CTMOEDG);
 	writeb(0x00, master->regs + GSC_I2CADVFEAT);
-	// program i3c frequency
-	writew(0x103f, master->regs + GSC_I3C_FREQ_DIVIDER);
 
-	
+	// core clock freq is 400 MHz, so calculate the divider count
+	// for given i3c SCL Freq and program i3c SCL frequency divider
+	reg = readw(master->regs + GSC_I3C_FREQ_DIVIDER);
+	i3c_freq = ((400000000/(bus->scl_rate.i3c * 2))) - 1;
+	reg = (reg & 0xF000) | i3c_freq;
+	writew(reg, master->regs + GSC_I3C_FREQ_DIVIDER);
+
 	ret = i3c_master_get_free_addr(m, 0);
 	if (ret < 0)
 		return ret;
 
 	memset(&info, 0, sizeof(info));
 	info.dyn_addr = ret;
+	// as per spec, PID has to be random number.
+	// if it's 0x00 then, generate random number and write it to PID registers.
+	pid_hi = readw(master->regs + GSC_I3C_PIDHI);
+	if (pid_hi == 0x00) {
+		writew(get_random_u16(), master->regs + GSC_I3C_PIDHI);
+		pid_hi = readw(master->regs + GSC_I3C_PIDHI);
+	}
+	pid_lo = readl(master->regs + GSC_I3C_PIDLO);
+	if (pid_lo == 0x00) {
+		writel(get_random_u32(), master->regs + GSC_I3C_PIDLO);
+		pid_lo = readl(master->regs + GSC_I3C_PIDLO);
+	}
+	info.pid = ((u64)pid_hi << 32) | pid_lo;
+	info.dcr = readb(master->regs + GSC_I3C_LDCR);
+	info.bcr = readb(master->regs + GSC_I3C_LBCR);
 
 	ret = i3c_master_set_info(&master->base, &info);
 	if (ret)
@@ -497,15 +531,31 @@ static int hpe_i3c_master_daa(struct i3c_master_controller *m)
 	olddevs = ~(master->free_pos);
 
 	// Prepare DAT in driver's memory before launching DAA.
-	// get all the free slave address for MAX number of i3c slave and fill the device address table
-	for (pos = 0; pos < master->maxdevs; pos++) {
+	// get all the free slave address for MAX number of i3c slave and
+	// fill the device address table.skip the index which are already used
+	// during SETDASA CCC code. hence start from master->free_pos_index
+	for (pos = master->free_pos_index; pos < master->maxdevs; pos++) {
 		if (olddevs & BIT(pos))
 			continue;
-
-		ret = i3c_master_get_free_addr(m, last_addr + 1);
-		if (ret < 0)
-			return -ENOSPC;
-
+		// check if the free address is already assigned during SETDASA or not
+		// if it is already assigned then, get the next free address
+		while (last_addr < I3C_MAX_ADDR) {
+			ret = i3c_master_get_free_addr(m, last_addr + 1);
+			if (ret < 0)
+				return -ENOSPC;
+			for (index = 0; index < master->free_pos_index; index++) {
+				if (master->addrs[index] == ret)
+					break;
+			}
+			if (index < master->free_pos_index) {
+				pr_info("Dynamic Address 0x%x already assigned to other device\n",
+					ret);
+				last_addr = ret;
+				continue;
+			} else {
+				break;
+			}
+		}
 		master->addrs[pos] = ret;
 		p = GetParityBit(ret);
 		last_addr = ret;
@@ -521,18 +571,24 @@ static int hpe_i3c_master_daa(struct i3c_master_controller *m)
 		val |= 0x04;
 
 	writeb(val, master->regs + GSC_I3C_COMMAND);
-	master->i3c_dev_cnt = 0x00;
 	master->trans_type = GSC_I3C_DAA;
 	gsc_i3c_start(master); //Broadcast Phase
 	ret = gsc_wait_for_interrupt(master);
 	if (ret != 0x00)
 		return ret;
 
-	current_i3c_dev_cnt = master->i3c_dev_cnt;
+	master->i3c_dev_discovered_cnt += master->i3c_dev_cnt;
+	current_i3c_dev_cnt = master->i3c_dev_discovered_cnt;
 
-	for (index = 0; index < current_i3c_dev_cnt; index++)
+	for (index = 0; index < current_i3c_dev_cnt; index++) {
+		if ((olddevs & BIT(index)) || (master->addrs[index] == 0x00))
+			continue;
+		pr_info("registering i3c device to i3c sub system with dynamic address = 0x%x\n",
+			master->addrs[index]);
 		i3c_master_add_i3c_dev_locked(m, master->addrs[index]);
-
+	}
+	master->free_pos_index = 0;
+	master->i3c_dev_cnt = 0x00;
 	val = readb(master->regs + GSC_I3C_DYN_ADDR_STAT);
 	pr_info("Total Number of Dynamic Address assigned = 0x%x\n", ((val >> 4) & 0x0F));
 	return 0;
@@ -691,6 +747,7 @@ static void hpe_i3c_master_detach_i3c_dev(struct i3c_dev_desc *dev)
 	master->addrs[data->index] = 0;
 	master->free_pos |= BIT(data->index);
 	master->i3c_desc[data->index] = NULL;
+	master->i3c_dev_discovered_cnt = master->i3c_dev_discovered_cnt - 1;
 	kfree(data);
 }
 
@@ -749,6 +806,7 @@ static irqreturn_t hpe_i3c_master_irq_handler(int irq, void *dev_id)
 	u32 i3c_cmd;
 	u32 btestat;
 	u32 dmastat;
+	u32 olddevs;
 	u16 val;
 	u8 p, ret, index;
 	u64 provid_high, provid_low;
@@ -1028,11 +1086,27 @@ static irqreturn_t hpe_i3c_master_irq_handler(int irq, void *dev_id)
 				master->state = GSC_I3C_DAA_ADDR_NACK;
 				gsc_i3c_stop(master);
 			} else {
-				master->state = GSC_I3C_DEV_IDENTIFY_PHASE;
-				p = GetParityBit(master->addrs[master->i3c_dev_cnt]);
-				ret = ((master->addrs[master->i3c_dev_cnt] & 0x7F) << 1) | (p & 0x01);
-				writeb(ret, master->regs + GSC_I3C_DYN_ADDR + master->i3c_dev_cnt);
-				writeb(0x8c, master->regs + GSC_I2CMCMD);
+				olddevs = ~(master->free_pos);
+				while (master->free_pos_index < master->maxdevs) {
+					if (olddevs & BIT(master->free_pos_index)) {
+						master->free_pos_index = master->free_pos_index + 1;
+						continue;
+					} else
+						break;
+				}
+				if (master->free_pos_index >= master->maxdevs) {
+					pr_err("too many i3c devices on the bus, exiting\n");
+					master->state = GSC_I3C_DAA_ADDR_NACK;
+					gsc_i3c_stop(master);
+				} else {
+					master->state = GSC_I3C_DEV_IDENTIFY_PHASE;
+					p = GetParityBit(master->addrs[master->free_pos_index]);
+					ret = ((master->addrs[master->free_pos_index] & 0x7F) << 1)
+							 | (p & 0x01);
+					writeb(ret,
+					master->regs + GSC_I3C_DYN_ADDR + master->i3c_dev_cnt);
+					writeb(0x8c, master->regs + GSC_I2CMCMD);
+				}
 			}
 			break;
 		case GSC_I3C_DEV_IDENTIFY_PHASE:
@@ -1045,10 +1119,16 @@ static irqreturn_t hpe_i3c_master_irq_handler(int irq, void *dev_id)
 				master->state = GSC_I3C_WRITE_DATA_PHASE;
 				provid_low = readl(master->regs + GSC_I3C_TARGET_PROVISIONAL_ID0);
 				provid_high = readw(master->regs + GSC_I3C_TARGET_PROVISIONAL_ID1);
-				master->target_prov_id[master->i3c_dev_cnt] = (((provid_high & 0xFFFF) << 32) | (provid_low & 0xFFFFFFFF));
-				master->target_bcr[master->i3c_dev_cnt] = readb(master->regs + GSC_I3C_TARGET_BCR);
-				master->target_dcr[master->i3c_dev_cnt] = readb(master->regs + GSC_I3C_TARGET_DCR);
-				pr_info("Target prov id = 0x%llx and Target_bcr = 0x%x and Target_dcr = 0x%x\n", master->target_prov_id[master->i3c_dev_cnt], master->target_bcr[master->i3c_dev_cnt], master->target_dcr[master->i3c_dev_cnt]);
+				master->target_prov_id[master->free_pos_index] =
+				(((provid_high & 0xFFFF) << 32) | (provid_low & 0xFFFFFFFF));
+				master->target_bcr[master->free_pos_index] =
+					readb(master->regs + GSC_I3C_TARGET_BCR);
+				master->target_dcr[master->free_pos_index] =
+					readb(master->regs + GSC_I3C_TARGET_DCR);
+				pr_info("Target prov id = 0x%llx and Target_bcr = 0x%x and Target_dcr = 0x%x\n",
+						master->target_prov_id[master->free_pos_index],
+						master->target_bcr[master->free_pos_index],
+						master->target_dcr[master->free_pos_index]);
 				writeb(0x80, master->regs + GSC_I2CMCMD);
 			}
 			break;
@@ -1059,8 +1139,10 @@ static irqreturn_t hpe_i3c_master_irq_handler(int irq, void *dev_id)
 				master->state = GSC_I3C_WRITE_DATA_NACK;
 				gsc_i3c_stop(master);
 			} else {
-				if ((master->i3c_dev_cnt + 1) < MAX_DEVS) {
+				if ((master->i3c_dev_discovered_cnt +
+					master->i3c_dev_cnt + 1) < MAX_DEVS) {
 					master->i3c_dev_cnt = master->i3c_dev_cnt + 1;
+					master->free_pos_index = master->free_pos_index + 1;
 					master->state = GSC_I3C_DAA_ADDR_PHASE;
 					writew(0xfd85, master->regs + GSC_I2CMCMD);
 				} else {
@@ -1240,6 +1322,176 @@ err_remove:
 }
 #endif
 
+static ssize_t sendccc_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct hpe_i3c_master *drvdata = dev_get_drvdata(dev);
+	int i;
+	ssize_t count = 0;
+
+	if (drvdata->ccc_payload_len == 0)
+		return sprintf(buf, "No CCC response available\n");
+
+	for (i = 0; i < drvdata->ccc_payload_len; i++)
+		count += sprintf(buf + count, "0x%02x ", drvdata->ccc_payload[i]);
+	count += sprintf(buf + count, "\n");
+	return count;
+}
+static ssize_t sendccc_store(struct device *dev, struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct hpe_i3c_master *drvdata = dev_get_drvdata(dev);
+	int ccc_status, ret;
+	char *token, *cur, *buf_copy;
+	unsigned int values[32], index = 0;
+	struct i3c_ccc_cmd_dest dest;
+	struct i3c_ccc_cmd cmd;
+	u32 olddevs;
+	u8 pos, p;
+
+	// parse the input string and convert it to unsigned integers
+	buf_copy = kstrdup(buf, GFP_KERNEL);
+	if (!buf_copy)
+		return -ENOMEM;
+	cur = buf_copy;
+	while ((token = strsep(&cur, " ")) != NULL && index < 32) {
+		if (kstrtouint(token, 16, &values[index]) < 0) {
+			kfree(buf_copy);
+			return -EINVAL;
+		}
+		index++;
+	}
+	kfree(buf_copy);
+	// number of data count should be at least 4 bytes
+	// (RNW, CCC Code, Target Address, Payload Length)
+	// otherwise return error
+	if (index < 4 || index > 32)
+		return -EINVAL;
+
+	// fill the CCC code structure and send the CCC command
+	dest.addr = values[2] & 0x7F; // Target Address
+	dest.payload.len = values[3]; // Payload Length
+	if (dest.payload.len != 0)
+		dest.payload.data = kzalloc(dest.payload.len, GFP_KERNEL);
+	else
+		dest.payload.data = NULL;
+	if (dest.payload.len && !dest.payload.data)
+		return -ENOMEM;
+
+	// fill the CCC command structure
+	cmd.rnw = values[0] & 0x01; // RNW bit
+	cmd.id = values[1]; // CCC Code
+	cmd.dests = &dest;
+	cmd.ndests = 1;
+	cmd.err = I3C_ERROR_UNKNOWN;
+
+	// if CCC is I3C_CCC_SETDASA then, we need to check if requested address
+	// is available or not. if not available then assign some other address.
+	if (cmd.id == I3C_CCC_SETDASA && (index == 5)) {
+		int ret = i3c_master_get_free_addr(&(drvdata->base), values[4] >> 1);
+
+		if (ret < 0) {
+			kfree(dest.payload.data);
+			return -ENOSPC;
+		}
+		values[4] = ret << 1; // Update the address with the available dynamic address
+	} else if (cmd.id == I3C_CCC_SETDASA && (index != 5)) {
+		kfree(dest.payload.data);
+		return -EINVAL; // Invalid number of parameters for SETDASA
+	}
+
+	// if RNW is 0, then copy the payload data from the input values
+	if (cmd.rnw == 0x00) {
+		u8 *ptr = (u8 *)dest.payload.data;
+
+		for (int i = 0; i < dest.payload.len; i++) {
+			if ((i + 4) < index) {
+				ptr[i] = values[i + 4];
+			} else {
+				kfree(dest.payload.data);
+				return -EINVAL; // Not enough payload data provided
+			}
+		}
+	}
+	mutex_lock(&drvdata->mutex);
+	ccc_status = hpe_i3c_master_send_ccc_cmd(&drvdata->base, &cmd);
+	mutex_unlock(&drvdata->mutex);
+	if (ccc_status != 0) {
+		kfree(dest.payload.data);
+		return ccc_status;
+	}
+	// if I3C_CCC_SETDASA is successful, then increase the device count
+	// and mark the address being used and also save the assigned
+	// dynamic address so that user space can get it later
+	if (cmd.id == I3C_CCC_SETDASA) {
+		olddevs = ~(drvdata->free_pos);
+		for (pos = drvdata->free_pos_index; pos < drvdata->maxdevs; pos++) {
+			if (olddevs & BIT(pos))
+				continue;
+			else {
+				drvdata->addrs[pos] = values[4] >> 1; // Store the dynamic address
+				p = GetParityBit(drvdata->addrs[pos]);
+				ret = ((drvdata->addrs[pos] & 0x7F) << 1) | (p & 0x01);
+				drvdata->device_addr_table[pos] = DEV_ADDR_TABLE_DYNAMIC_ADDR(ret);
+				drvdata->i3c_dev_cnt = drvdata->i3c_dev_cnt + 1;
+				drvdata->free_pos_index = pos + 1;
+				break;
+			}
+		}
+		pr_info("SETDASA executed successfully for i3c device with dynamic addr = 0x%x\n",
+				values[4] >> 1);
+	}
+	// store the data returned by the target for the CCC command
+	drvdata->ccc_payload_len = drvdata->data_count;
+	if (dest.payload.data) {
+		memcpy(drvdata->ccc_payload, dest.payload.data, drvdata->data_count);
+		kfree(dest.payload.data);
+	}
+	return count;
+}
+static DEVICE_ATTR_RW(sendccc);
+
+static ssize_t performdaa_store(struct device *dev, struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct hpe_i3c_master *drvdata = dev_get_drvdata(dev);
+	unsigned int value;
+	int rc;
+	int daa_status;
+
+	rc = kstrtouint(buf, 10, &value);
+	if ((rc < 0) || (value != 1))
+		return -EINVAL;
+
+	mutex_lock(&drvdata->mutex);
+	daa_status = i3c_master_do_daa(&drvdata->base);
+	mutex_unlock(&drvdata->mutex);
+	if (daa_status != 0)
+		return daa_status;
+
+	return count;
+}
+static DEVICE_ATTR_WO(performdaa);
+
+static struct attribute *i3c_attrs[] = {
+	&dev_attr_performdaa.attr,
+	&dev_attr_sendccc.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(i3c);
+
+static int sysfs_register(struct device *parent,
+			struct hpe_i3c_master *drvdata)
+{
+	struct device *dev;
+
+	dev = device_create_with_groups(soc_class, parent, 0,
+					drvdata, i3c_groups, "i3c-%d", drvdata->engine);
+	if (IS_ERR(dev))
+		return PTR_ERR(dev);
+	return 0;
+}
+
 static int hpe_i3c_probe(struct platform_device *pdev)
 {
 	struct hpe_i3c_master *master;
@@ -1254,6 +1506,9 @@ static int hpe_i3c_probe(struct platform_device *pdev)
 	master->regs = devm_platform_ioremap_resource(pdev, 0);
 
 	master->i3c_error = 0;
+	master->i3c_dev_discovered_cnt = 0;
+	master->free_pos_index = 0;
+	master->i3c_dev_cnt = 0x00;
 
 	if (IS_ERR(master->regs))
 		return PTR_ERR(master->regs);
@@ -1287,6 +1542,11 @@ static int hpe_i3c_probe(struct platform_device *pdev)
 
 	ret = i3c_master_register(&master->base, &pdev->dev,
 				  &hpe_mipi_i3c_ops, false);
+	if (ret)
+		return ret;
+	mutex_init(&master->mutex);
+
+	ret = sysfs_register(&pdev->dev, master);
 	if (ret)
 		return ret;
 

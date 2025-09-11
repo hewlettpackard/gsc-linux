@@ -71,6 +71,14 @@ static int gxp_fn2_gpio_get(struct gpio_chip *chip, unsigned int offset)
 			// We signal the transition to power down
 			pr_info("FN2 PGOOD DISABLED");
 
+			regmap_read(drvdata->xreg_map, 0x4, &val);
+			if (val & 0xff000000)
+				pr_info("FN2 off reg 0x7 = 0x%x\n", (val & 0xff000000) >> 24);
+
+			regmap_read(drvdata->xreg_map, 0x8, &val);
+			if (val & 0x000000ff)
+				pr_info("FN2 off reg 0x8 = 0x%x\n", val & 0x000000ff);
+
 			gxp_pgood_trigger = 2;
 			wake_up_interruptible(&gxp_fn2);
 		}
@@ -93,6 +101,7 @@ static void gxp_fn2_gpio_set(struct gpio_chip *chip, unsigned int offset,
 		int value)
 {
 	struct gxp_fn2_drvdata *drvdata = dev_get_drvdata(chip->parent);
+	unsigned int tmp;
 
 	switch (offset) {
 	case VPBTN:
@@ -123,12 +132,19 @@ static void gxp_fn2_gpio_set(struct gpio_chip *chip, unsigned int offset,
 				0xFF000000, 0x04000000);
 #endif
 #endif
-		//TODO: Add GSC Specific Logic here
+
 #ifdef CONFIG_ARCH_HPE_GSC
-		//offset 0x9=0x04 to indicate that FW validation is complete And
-		//the CPLD power sequencer can transition to S5.
+
+
+		regmap_read(drvdata->xreg_map, 0x8, &tmp);
+		if (tmp & 0x000000ff) {
+			pr_info("FN2 Power Button reg 0x8 = 0x%x\n", tmp & 0x000000ff);
+			regmap_update_bits(drvdata->xreg_map, 0x8, 0xff, 0x40 | 0x10 | 0x8 | 0x2 | 0x1);
+		}
+
+		//set FW validation bit as Passed and G2_TO_S5 Complete bit (offset 0x09)
 		regmap_update_bits(drvdata->xreg_map, 0x08,
-				0x00000400, 0x00000400);
+				   0x00002400, 0x00002400);
 #endif
 		//offset 0x44 bit 16
 		regmap_update_bits(drvdata->fn2_map, 0x44, BIT(16),

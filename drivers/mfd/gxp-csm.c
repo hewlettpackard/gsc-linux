@@ -27,6 +27,7 @@
 #define ASRESTAT	0x5d
 #define AFUNEN2		0xde
 #define AFUNEN2_EHCIEN	0x40
+#define RSTCODE		0x74
 #define SHUTDOWN	0xe7
 
 struct gxp_csm_drvdata {
@@ -121,6 +122,23 @@ static ssize_t sw_reset_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(sw_reset);
 
+static ssize_t rstcode_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct gxp_csm_drvdata *drvdata = dev_get_drvdata(dev);
+	unsigned short value;
+	ssize_t ret;
+
+	mutex_lock(&drvdata->mutex);
+
+	value = readw(drvdata->base + RSTCODE);
+	ret = sprintf(buf, "0x%x", value);
+
+	mutex_unlock(&drvdata->mutex);
+	return ret;
+}
+static DEVICE_ATTR_RO(rstcode);
+
 static ssize_t sw_shutdown_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
@@ -142,11 +160,11 @@ static ssize_t sw_shutdown_store(struct device *dev,
 }
 static DEVICE_ATTR_WO(sw_shutdown);
 
-
 static struct attribute *csm_attrs[] = {
 	&dev_attr_sw_reset.attr,
 	&dev_attr_sw_shutdown.attr,
 	&dev_attr_vehci_enable.attr,
+	&dev_attr_rstcode.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(csm);

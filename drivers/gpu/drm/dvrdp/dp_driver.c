@@ -77,7 +77,7 @@ static int dp_common_phy_register_read(unsigned int reg, unsigned int *data);
 static int dp_common_phy_register_write(unsigned int reg, unsigned int data);
 
 static struct task_struct *dp_thread;
-int dp_thread_func(void *data)
+static int dp_thread_func(void *data)
 {
 	pr_debug("DP: In thread: Invoking hotplug function\n");
 	hotplug_func();
@@ -103,7 +103,7 @@ static int dp_common_phy_register_write(unsigned int reg, unsigned int data)
 static int dp_common_phy_register_read(unsigned int reg, unsigned int *data)
 {
 	unsigned long flags = 0;
-	unsigned int dummy_data = 0;
+	unsigned int dummy_data __maybe_unused = 0;
 
 	if (dptx_base_ptr ==  NULL) {
 		pr_err("DP: read common phy - error, dptx base_ptr is NULL\n");
@@ -428,7 +428,7 @@ static int register_char_device(void)
 {
 
 	dev_t dev;
-	int err;
+	int err __maybe_unused;
 	int i = 0;
 
 	/*

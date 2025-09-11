@@ -58,18 +58,6 @@ struct gxp_psu_drvdata {
 
 struct mutex psu_drv_lock; /* lock for protecting */
 
-void swapbytes(void *input, size_t len)
-{
-	unsigned int i;
-	unsigned char *in = (unsigned char *)input, tmp;
-
-	for (i = 0; i < len / 2; i++) {
-		tmp = *(in + i);
-		*(in + i) = *(in + len - i - 1);
-		*(in + len - i - 1) = tmp;
-	}
-}
-
 static unsigned char cal_checksum(unsigned char *buf, unsigned long size)
 {
 	unsigned char sum = 0;
@@ -506,7 +494,7 @@ static int gxp_psu_probe(struct i2c_client *client)
 	return 0;
 }
 
-void gxp_psu_remove(struct i2c_client *client)
+static void gxp_psu_remove(struct i2c_client *client)
 {
 	hwmon_device_unregister(&client->dev);
 	sysfs_remove_bin_file(&client->dev.kobj, &eeprom_attr);

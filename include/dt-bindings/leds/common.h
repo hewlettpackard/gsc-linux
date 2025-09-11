@@ -110,5 +110,6 @@
 #define LED_FUNCTION_WLAN_5GHZ "wlan-5ghz"
 #define LED_FUNCTION_WLAN_6GHZ "wlan-6ghz"
 #define LED_FUNCTION_WPS "wps"
+#define LED_FUNCTION_HEALTH "health"
 
 #endif /* __DT_BINDINGS_LEDS_H */

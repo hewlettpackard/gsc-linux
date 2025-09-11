@@ -1695,7 +1695,7 @@ static int peci_device_match(struct device *dev, const struct device_driver *drv
 	if (peci_of_match_device(drv->of_match_table, client))
 		return 1;
 
-	driver = to_peci_driver(drv);
+	driver = to_peci_driver((struct device_driver *)drv);
 
 	/* Finally an ID match */
 	if (peci_match_id(driver->id_table, client))

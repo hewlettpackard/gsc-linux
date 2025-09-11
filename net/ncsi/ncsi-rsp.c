@@ -1178,6 +1178,8 @@ int ncsi_rcv_rsp(struct sk_buff *skb, struct net_device *dev,
 	if (!ndp)
 		return -ENODEV;
 
+	nd->is_replying = 1;
+
 	/* Check if it is AEN packet */
 	hdr = (struct ncsi_pkt_hdr *)skb_network_header(skb);
 	if (hdr->type == NCSI_PKT_AEN)
