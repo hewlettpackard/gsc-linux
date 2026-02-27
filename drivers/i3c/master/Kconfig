@@ -68,3 +68,20 @@ config MIPI_I3C_HCI_PCI
 
 	  This driver can also be built as a module. If so, the module will be
 	  called mipi-i3c-hci-pci.
+
+config HPE_I3C_MASTER
+	tristate "HPE I3C master driver"
+	depends on I3C
+	depends on HAS_IOMEM
+	help
+	  Support for HPE GSC I3C Controller Driver
+
+if HPE_I3C_MASTER
+config HPE_I3C_EXERCISER
+	tristate "programming i3c frequency for exerciser"
+	help
+	  Support for programming i3c frequency for Exerciser.
+
+	  Exerciser can't run on full i3c frequency which is 12.5 MHz.
+	  when this defconfig is enabled we can program i3c frequecy slightly lesser than 12.5 MHz
+endif

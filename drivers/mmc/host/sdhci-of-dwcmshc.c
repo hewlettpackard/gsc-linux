@@ -199,6 +199,9 @@
 #define BOUNDARY_OK(addr, len) \
 	((addr | (SZ_128M - 1)) == ((addr + len - 1) | (SZ_128M - 1)))
 
+#define IOPBASE				0xC0000000
+#define MSHCCS_OFFSET			0x0110
+
 #define DWCMSHC_SDHCI_CQE_TRNS_MODE	(SDHCI_TRNS_MULTI | \
 					 SDHCI_TRNS_BLK_CNT_EN | \
 					 SDHCI_TRNS_DMA)
@@ -289,6 +292,40 @@ static void dwcmshc_adma_write_desc(struct sdhci_host *host, void **desc,
 	sdhci_adma_write_desc(host, desc, addr, len, cmd);
 }
 
+static void dwcmshc_vendor_specific(struct sdhci_host *host)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct dwcmshc_priv *dwc_priv = sdhci_pltfm_priv(pltfm_host);
+	u8 extra;
+
+	extra = sdhci_readb(host, dwc_priv->vendor_specific_area1 + DWCMSHC_HOST_CTRL3);
+	extra &= ~BIT(0);
+	sdhci_writeb(host, extra, dwc_priv->vendor_specific_area1 + DWCMSHC_HOST_CTRL3);
+	sdhci_writel(host, 0x021f0005, dwc_priv->vendor_specific_area1 + DWCMSHC_EMMC_ATCTRL);
+}
+
+static void dwcmshc_hpe_init(struct sdhci_host *host, struct device *dev)
+{
+	void __iomem *cfg0base;
+	u32 value;
+
+	/* Disable cmd conflict check */
+	dwcmshc_vendor_specific(host);
+
+	/* csfs_59350 - Set bit 18 of MSHCCS */
+	cfg0base = ioremap(IOPBASE + MSHCCS_OFFSET, 4);
+	if (!cfg0base) {
+		dev_err(dev, "Failed to ioremap 0xC0000110\n");
+	} else {
+		value = ioread32(cfg0base);
+		value |= BIT(18);
+		iowrite32(value, cfg0base);
+		iounmap(cfg0base);
+	}
+
+	sdhci_enable_v4_mode(host);
+}
+
 static void dwcmshc_reset(struct sdhci_host *host, u8 mask)
 {
 	sdhci_reset(host, mask);
@@ -300,6 +337,8 @@ static void dwcmshc_reset(struct sdhci_host *host, u8 mask)
 	 */
 	if (mask & SDHCI_RESET_CMD)
 		sdhci_writel(host, SDHCI_INT_RESPONSE, SDHCI_INT_STATUS);
+
+	dwcmshc_vendor_specific(host);
 }
 
 static unsigned int dwcmshc_get_max_clock(struct sdhci_host *host)
@@ -473,6 +512,12 @@ static void dwcmshc_set_uhs_signaling(struct sdhci_host *host,
 	ctrl_2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
 	/* Select Bus Speed Mode for host */
 	ctrl_2 &= ~SDHCI_CTRL_UHS_MASK;
+
+	//Per Nathaniel, Always set the CARD_IS_EMMC bit...
+	ctrl = sdhci_readw(host, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
+	ctrl |= DWCMSHC_CARD_IS_EMMC;
+	sdhci_writew(host, ctrl, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
+
 	if ((timing == MMC_TIMING_MMC_HS200) ||
 	    (timing == MMC_TIMING_UHS_SDR104))
 		ctrl_2 |= SDHCI_CTRL_UHS_SDR104;
@@ -488,9 +533,11 @@ static void dwcmshc_set_uhs_signaling(struct sdhci_host *host,
 		ctrl_2 |= SDHCI_CTRL_UHS_DDR50;
 	else if (timing == MMC_TIMING_MMC_HS400) {
 		/* set CARD_IS_EMMC bit to enable Data Strobe for HS400 */
+	#if 0
 		ctrl = sdhci_readw(host, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
 		ctrl |= DWCMSHC_CARD_IS_EMMC;
 		sdhci_writew(host, ctrl, priv->vendor_specific_area1 + DWCMSHC_EMMC_CONTROL);
+	#endif
 
 		ctrl_2 |= DWCMSHC_CTRL_HS400;
 	}
@@ -1466,6 +1513,8 @@ static int dwcmshc_probe(struct platform_device *pdev)
 		if (err)
 			goto err_clk;
 	}
+
+	dwcmshc_hpe_init(host, dev);
 
 #ifdef CONFIG_ACPI
 	if (pltfm_data == &sdhci_dwcmshc_bf3_pdata)

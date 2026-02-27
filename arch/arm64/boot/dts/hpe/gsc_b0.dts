@@ -1,0 +1,2175 @@
+// SPDX-License-Identifier: GPL-2.0-only
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/net/ncsi.h>
+#include <dt-bindings/i2c/i2c.h>
+#include <dt-bindings/leds/common.h>
+
+/dts-v1/;
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	compatible = "hpe,gsc";
+	model = "Hewlett Packard Enterprise GSC BMC";
+
+	chosen {
+		bootargs = "earlycon=ns16550a,0xc00000f0 console=ttyS0,115200
+			    uio_dmem_genirq.of_id=generic-uio net.ifnames=0 ";
+	};
+
+	aliases {
+		ethernet0 = &macb0;
+		ethernet1 = &macb2;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <0>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0 0xa0008048>;
+			next-level-cache = <&L2>;
+			L2: l2-cache {
+				compatible = "cache,arm,arch-cache";
+			};
+		};
+		cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53";
+			reg = <1>;
+			enable-method = "spin-table";
+			cpu-release-addr = <0 0xa0008048>;
+			next-level-cache = <&L2>;
+		};
+	};
+
+	clocks {
+		osc: osc {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-output-names = "osc";
+			clock-frequency = <33333333>;
+		};
+
+		iopclk: iopclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clocks = <&osc>;
+			clock-out-put-names = "iopclk";
+			clock-frequency = <400000000>;
+		};
+
+		memclk: memclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clocks = <&osc>;
+			clock-out-put-names = "memclk";
+			clock-frequency = <800000000>;
+		};
+
+		clk125: clk125 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <125000000>;
+		};
+
+		clk20: clk20 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <20000000>;
+		};
+
+		clk400: clk400 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <400000000>;
+		};
+
+		clk391K: clk391K {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <391000>;
+		};
+
+		emmcclk:emmcclk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <200000000>;
+			clock-output-names = "emmcclk";
+		};
+	};
+
+	memory@00000000 {
+		device_type = "memory";
+		reg = <0x00000000 0x40000000>;
+	};
+
+	/* Last 64KB in this reserved region - buffer@10000000, is used for AVRAM */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		reserved: buffer@10000000 {
+			no-map;
+			reg = <0x10000000 0x6010000>;
+		};
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <1 13 0xf08>,
+				<1 14 0xf08>,
+				<1 11 0xf08>,
+				<1 10 0xf08>;
+		clock-frequency = <50000000>;
+		interrupt-parent = <&gic>;
+        };
+
+	ahb@80000000 {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		gic: gic@ce000000 {
+			compatible = "arm,gic-v3";
+			#interrupt-cells = <3>;
+			ranges;
+			interrupt-controller;
+			redistributor-stride = <0x0 0x20000>;
+			#redistributor-regions = <1>;
+			reg = <0xce000000 0x10000>,
+			      <0xce060000 0x40000>,
+			      <0xce200000 0x40000>;
+		};
+
+		watchdog: watchdog@c0000090 {
+			compatible = "hpe,gxp-wdt";
+			reg = <0xc0000090 0x02>, <0xc0000096 0x01>;
+		};
+
+		kw_reg_wr {
+			compatible = "hpe,gxp-kw-reg";
+			vromoff_reg_val = <0x10000000 0x2>; //010:64MB(size)
+			avrcfg_reg_val  = <0x14000000 0x5>; //0101:64KB(size)
+		};
+
+		uartc: serial@c00000f0 {
+			compatible = "ns16550a";
+			reg = <0xc00000f0 0x8>;
+			interrupts = <0 19 4>;
+			interrupt-parent = <&gic>;
+			clock-frequency = <1846153>;
+			reg-shift = <0>;
+		};
+
+		uarta: serial@c00000e0 {
+			compatible = "ns16550a";
+			reg = <0xc00000e0 0x8>;
+			interrupts = <0 17 4>;
+			interrupt-parent = <&gic>;
+			clock-frequency = <1846153>;
+			reg-shift = <0>;
+		};
+
+		uartb: serial@c00000e8 {
+			compatible = "ns16550a";
+			reg = <0xc00000e8 0x8>;
+			interrupts = <0 18 4>;
+			interrupt-parent = <&gic>;
+			clock-frequency = <1846153>;
+			reg-shift = <0>;
+		};
+
+		uarte: serial@c00003e0 {
+			compatible = "ns16550a";
+			reg = <0xc00003e0 0x8>;
+			interrupts = <0 12 4>;
+			interrupt-parent = <&gic>;
+			clock-frequency = <1846153>;
+			reg-shift = <0>;
+		};
+
+		vuart_a: vuart_a@80fd0200 {
+			compatible = "hpe,gxp-vuart";
+			reg = <0x80fd0200 0x100>, <0x80fc0230 0x100>;
+			interrupts = <0 98 4>;
+			interrupt-parent = <&gic>;
+			clock-frequency = <1846153>;
+			reg-shift = <0>;
+			status = "okay";
+			serial-line = <3>;
+		};
+
+		rtc: rtc@c0000600 {
+			compatible = "hpe,gsc-rtc";
+			reg = <0xc0000600 0x100>;
+			interrupts = <0 9 4>;
+			interrupt-parent = <&gic>;
+		};
+
+		spifi0: spifi@cef00000 {
+			compatible = "hpe,gsc-spifi";
+			reg = <0xcef00000 0x80>, <0xcef08000 0x100>, <0xf8000000 0x8000000>;
+			interrupts = <0 20 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			flash@0 {
+				compatible = "jedec,spi-nor";
+				reg = <0>;
+				spi-tx-bus-width = <2>;
+				spi-rx-bus-width = <2>;
+				partitions {
+					compatible = "fixed-partitions";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					bmc@0 {
+						label = "bmc";
+						reg = <0x0 0x4000000>;
+					};
+					u-boot@120000 {
+						label = "u-boot";
+						reg = <0x120000 0x60000>;
+					};
+					u-boot-env@180000 {
+						label = "u-boot-env";
+						reg = <0x180000 0x20000>;
+					};
+					kernel@1a0000 {
+						label = "kernel";
+						reg = <0x1a0000 0xa00000>;
+					};
+					rofs@ba0000 {
+						label = "rofs";
+						reg = <0xba0000 0x3000000>;
+					};
+					rwfs@3C30000 {
+						label = "rwfs";
+						reg = <0x3C30000 0x250000>;
+					};
+					u-boot-signature@3f70000 {
+						label = "u-boot-signature";
+						reg = <0x3f70000 0x10000>;
+					};
+				};
+			};
+
+			flash@1 {
+				compatible = "jedec,spi-nor";
+				reg = <1>;
+				spi-tx-bus-width = <2>;
+				spi-rx-bus-width = <2>;
+				partitions {
+					compatible = "fixed-partitions";
+					#address-cells = <1>;
+					#size-cells = <1>;
+					host-prime@0 {
+						label = "host-prime";
+						reg = <0x0 0x04000000>;
+					};
+				};
+			};
+		};
+
+		vrom@10000000 {
+			compatible = "mtd-ram";
+			bank-width = <4>;
+			reg = <0x10000000 0x4000000>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			partition@0 {
+				label = "vrom-prime";
+				reg = <0x0 0x4000000>;
+			};
+		};
+
+		i2c0: i2c@c0002000 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002000 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 32 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c1: i2c@c0002100 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002100 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 33 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c2: i2c@c0002200 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002200 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 34 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			/* Proto EEPROM */
+			24c02@55 {
+				compatible = "atmel,24c32";
+				pagesize = <8>;
+				reg = <0x55>;
+			};
+			/*
+			 * Production EEPROM
+			 * 24c02@54 {
+			 *	compatible = "atmel,24c32";
+			 *	pagesize = <8>;
+			 *	reg = <0x54>;
+			 * };
+			 *
+			 * DC-SCM EEPROM
+			 * 24c02@50 {
+			 *	compatible = "atmel,24c128";
+			 *	pagesize = <8>;
+			 *	reg = <0x50>;
+			 * };
+			 */
+
+		};
+
+		i2c3: i2c@c0002300 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002300 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 35 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c4: i2c@c0002400 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002400 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 36 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c5: i2c@c0002500 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002500 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 37 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c6: i2c@c0002600 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002600 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 38 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c7: i2c@c0002700 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002700 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 39 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mctp-controller;
+			mctp@10 {
+				compatible = "mctp-i2c-controller";
+				reg = <(0x10 | I2C_OWN_SLAVE_ADDRESS)>;
+			};
+		};
+
+		i2c8: i2c@c0002800 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002800 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 40 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2c9: i2c@c0002900 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0002900 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 41 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i3c19: i3c@c0003300 {
+			compatible = "hpe,i3c-master";
+			reg = <0xc0003300 0xff>;
+			i2c-scl-hz = <100000>;
+			i3c-scl-hz = <6250000>;
+			interrupts = <0 51 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+			mctp-controller;
+
+			hub@0,0 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				reg = <0x4cdffa8fb05 0x16 0xc2>;
+				dcr = /bits/ 8 <0xc2>;
+
+				id-csel = <0>;
+				id-cp1 = <3>;
+
+				// Control port configuration
+				control-port {
+					port-name = "CP0";
+					io-microvolt = <1000000>;
+					vio-source = "external";
+					io-strength-ohms = <50>;
+				};
+
+				// Target group configurations
+				target-group-0 {
+					io-microvolt = <1000000>;
+					vio-source = "external";
+				};
+				target-group-1 {
+					io-microvolt = <1000000>;
+					vio-source = "external";
+				};
+				target-port@0 {
+					compatible = "i3c-hub-i3c";
+					reg = <0>;
+					io-microvolt = <1000000>;
+					io-internal-pullups-disable;
+				};
+				target-port@1 {
+					compatible = "i3c-hub-i3c";
+					reg = <1>;
+					io-microvolt = <1000000>;
+					io-internal-pullups-disable;
+				};
+				target-port@2 {
+					compatible = "i3c-hub-i3c";
+					reg = <2>;
+					io-microvolt = <1000000>;
+					io-internal-pullups-disable;
+				};
+				target-port@3 {
+					compatible = "i3c-hub-i3c";
+					reg = <3>;
+					io-microvolt = <1000000>;
+					io-internal-pullups-disable;
+				};
+			};
+		};
+
+		/*
+		 * Aero DDC Engine
+		 */
+		i2c20: i2c@c0003400 {
+			compatible = "hpe,gxp-i2c";
+			reg = <0xc0003400 0x70>;
+			bus-frequency = <100000>;
+			interrupts = <0 63 4>;
+			interrupt-parent = <&gic>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		i2cmux@0 {
+			compatible = "i2c-mux-gpio";
+			i2c-parent = <&i2c0>;
+			status = "okay";
+			mux-gpios = <&xreg 1056 GPIO_ACTIVE_HIGH
+				     &xreg 1057 GPIO_ACTIVE_HIGH
+				     &xreg 1058 GPIO_ACTIVE_HIGH
+				     &xreg 1059 GPIO_ACTIVE_HIGH>;
+			idle-state = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			i2cseg11: i2c0@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg12: i2c0@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg13: i2c0@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg14: i2c0@4 {
+				reg = <4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg15: i2c0@5 {
+				reg = <5>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg16: i2c0@6 {
+				reg = <6>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg17: i2c0@7 {
+				reg = <7>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg18: i2c0@8 {
+				reg = <8>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
+
+		i2cmux@3 {
+			compatible = "i2c-mux-gpio";
+			i2c-parent = <&i2c3>;
+			status = "okay";
+			mux-gpios = <&xreg 1080 GPIO_ACTIVE_HIGH
+				     &xreg 1081 GPIO_ACTIVE_HIGH
+				     &xreg 1082 GPIO_ACTIVE_HIGH
+				     &xreg 1083 GPIO_ACTIVE_HIGH>;
+			idle-state = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			i2cseg19: i2c3@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg20: i2c3@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg21: i2c3@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg22: i2c3@4 {
+				reg = <4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+			i2cseg23: i2c3@5 {
+				reg = <5>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg24: i2c3@6 {
+				reg = <6>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg25: i2c3@7 {
+				reg = <7>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg26: i2c3@8 {
+				reg = <8>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg27: i2c3@9 {
+				reg = <9>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg28: i2c3@10 {
+				reg = <10>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg29: i2c3@11 {
+				reg = <11>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg30: i2c3@12 {
+				reg = <12>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
+
+		i2cmux@4 {
+			compatible = "i2c-mux-gpio";
+			i2c-parent = <&i2c4>;
+			status = "okay";
+			mux-gpios = <&xreg 1088 GPIO_ACTIVE_HIGH
+				     &xreg 1089 GPIO_ACTIVE_HIGH
+				     &xreg 1090 GPIO_ACTIVE_HIGH
+				     &xreg 1091 GPIO_ACTIVE_HIGH
+				     &xreg 1092 GPIO_ACTIVE_HIGH>;
+			idle-state = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			i2cseg31: i2c4@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg32: i2c4@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg33: i2c4@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg34: i2c4@4 {
+				reg = <4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+			i2cseg35: i2c4@5 {
+				reg = <5>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg36: i2c4@6 {
+				reg = <6>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg37: i2c4@7 {
+				reg = <7>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg38: i2c4@8 {
+				reg = <8>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg39: i2c4@9 {
+				reg = <9>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg40: i2c4@10 {
+				reg = <10>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg41: i2c4@11 {
+				reg = <11>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg42: i2c4@12 {
+				reg = <12>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg43: i2c4@13 {
+				reg = <13>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg44: i2c4@14 {
+				reg = <14>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg45: i2c4@15 {
+				reg = <15>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg46: i2c4@16 {
+				reg = <16>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
+
+		/*
+		 * IMPORTANT: dtbo files may overlay this so the name
+		 * of each segment below should not be changed.
+		 * For example 'i2cmux@5/i2c5@1'
+		 */
+		i2cmux@5 {
+			compatible = "i2c-mux-gpio";
+			i2c-parent = <&i2c5>;
+			status = "okay";
+			mux-gpios = <&xreg 1096 GPIO_ACTIVE_HIGH
+				    &xreg 1097 GPIO_ACTIVE_HIGH
+				    &xreg 1098 GPIO_ACTIVE_HIGH>;
+			idle-state = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			i2cseg47: i2c5@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg48: i2c5@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg49: i2c5@3 {
+				reg =<3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg50: i2c5@4 {
+				reg =<4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+
+		};
+
+		i2cmux@6 {
+			compatible = "i2c-mux-gpio";
+			i2c-parent = <&i2c6>;
+			status = "okay";
+			mux-gpios = <&xreg 1104 GPIO_ACTIVE_HIGH
+				     &xreg 1105 GPIO_ACTIVE_HIGH
+				     &xreg 1106 GPIO_ACTIVE_HIGH
+				     &xreg 1107 GPIO_ACTIVE_HIGH
+				     &xreg 1108 GPIO_ACTIVE_HIGH>;
+			idle-state = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			i2cseg51: i2c6@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg52: i2c6@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg53: i2c6@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg54: i2c6@4 {
+				reg = <4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+			i2cseg55: i2c6@5 {
+				reg = <5>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg56: i2c6@6 {
+				reg = <6>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg57: i2c6@7 {
+				reg = <7>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg58: i2c6@8 {
+				reg = <8>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg59: i2c6@9 {
+				reg = <9>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg60: i2c6@10 {
+				reg = <10>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg61: i2c6@11 {
+				reg = <11>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg62: i2c6@12 {
+				reg = <12>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg63: i2c6@13 {
+				reg = <13>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg64: i2c6@14 {
+				reg = <14>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg65: i2c6@15 {
+				reg = <15>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg66: i2c6@16 {
+				reg = <16>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
+
+		i2cmux@7 {
+			compatible = "i2c-mux-gpio";
+			i2c-parent = <&i2c7>;
+			status = "okay";
+			mux-gpios = <&xreg 1112 GPIO_ACTIVE_HIGH
+				     &xreg 1113 GPIO_ACTIVE_HIGH
+				     &xreg 1114 GPIO_ACTIVE_HIGH
+				     &xreg 1115 GPIO_ACTIVE_HIGH
+				     &xreg 1116 GPIO_ACTIVE_HIGH>;
+			idle-state = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			i2cseg67: i2c7@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				mctp-controller;
+			};
+
+			i2cseg68: i2c7@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg69: i2c7@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg70: i2c7@4 {
+				reg = <4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg71: i2c7@5 {
+				reg = <5>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg72: i2c7@6 {
+				reg = <6>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg73: i2c7@7 {
+				reg = <7>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg74: i2c7@8 {
+				reg = <8>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg75: i2c7@9 {
+				reg = <9>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg76: i2c7@10 {
+				reg = <10>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				mctp-controller;
+			};
+
+			i2cseg77: i2c7@11 {
+				reg = <11>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg78: i2c7@12 {
+				reg = <12>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg79: i2c7@13 {
+				reg = <13>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg80: i2c7@14 {
+				reg = <14>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg81: i2c7@15 {
+				reg = <15>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg82: i2c7@16 {
+				reg = <16>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
+
+		i2cmux@8 {
+			compatible = "i2c-mux-gpio";
+			i2c-parent = <&i2c8>;
+			status = "okay";
+			mux-gpios = <&xreg 1120 GPIO_ACTIVE_HIGH
+				     &xreg 1121 GPIO_ACTIVE_HIGH
+				     &xreg 1122 GPIO_ACTIVE_HIGH
+				     &xreg 1123 GPIO_ACTIVE_HIGH
+				     &xreg 1124 GPIO_ACTIVE_HIGH>;
+			idle-state = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			i2cseg83: i2c8@1 {
+				reg = <1>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg84: i2c8@2 {
+				reg = <2>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg85: i2c8@3 {
+				reg = <3>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg86: i2c8@4 {
+				reg = <4>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg87: i2c8@5 {
+				reg = <5>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg88: i2c8@6 {
+				reg = <6>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg89: i2c8@7 {
+				reg = <7>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg90: i2c8@8 {
+				reg = <8>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg91: i2c8@9 {
+				reg = <9>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg92: i2c8@10 {
+				reg = <10>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg93: i2c8@11 {
+				reg = <11>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg94: i2c8@12 {
+				reg = <12>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg95: i2c8@13 {
+				reg = <13>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg96: i2c8@14 {
+				reg = <14>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg97: i2c8@15 {
+				reg = <15>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+
+			i2cseg98: i2c8@16 {
+				reg = <16>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
+		};
+
+/*
+ * IMPORTANT: If you add any macb interfaces here or modify any existing macb
+ * device tree elements, you must make changes in U-Boot
+ * (see U-Boot file boards/hpe/gsc/gsc_loader.c)
+ */
+		macb0: ethernet@c0004000 {
+			compatible = "hpe,gsc-gem";
+			reg = <0xc0004000 0x1000>;
+			interrupts = <0 74 4>, <0 75 4>, <0 76 4>;
+			interrupt-parent = <&gic>;
+			phy-handle = <&ethernet_phy>;
+			clock-names = "pclk", "hclk", "tx_clk";
+			clocks = <&clk400>, <&clk400>, <&clk125>;
+			phy-mode = "sgmii";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mdio {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				ethernet_phy: ethernet_phy@0{
+					compatible = "marvell,88E1514", "ethernet-phy-ieee802.3-c22";
+					reg = <0x0>;
+					
+					/* LED Configuration:
+                                        * In general, 16_3.11:8 control the LED[2] pin, 16_3.7:4 control the LED[1] pin, and 16_3.3:0 control the LED[0] pin. 
+					* LED0 (bits 3:0)  = 0x0 (0000 = On - Link, Off - No Link)
+					* LED1 (bits 7:4)  = 0x4 (0100 = Blink - Activity, Off- No Activity)
+					* LED2 (bits 11:8) = 0x0 (0000 = On - Link, Off - No Link)
+                                        * (bits 12:15) = reserved
+                                        * LED0 or LED2 may be unused in our configurations
+					*/
+					marvell,reg-init = <3 16 0x0000 0x1040>;
+				};
+			};
+		};
+
+		macb2: ethernet@c0006000 {
+			compatible = "hpe,gsc-rmii";
+			reg = <0xc0006000 0x1000>;
+			interrupts = <0 80 4>, <0 81 4>, <0 82 4>;
+			interrupt-parent = <&gic>;
+			clock-names = "pclk", "hclk";
+			clocks = <&clk400>, <&clk400>;
+			phy-mode = "rmii";
+			use-ncsi;
+			ncsi,vlan-mode = <NCSI_VLAN_MODE_ANY>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		display_port: display_port@c0020000 {
+			compatible = "display_port_platform_device";
+			interrupts = <0 14 4>;
+			interrupt-parent = <&gic>;
+		};
+
+		usbdrd_dwc3: usb@c4000000 {
+			compatible = "snps,dwc3";
+			reg = <0xc4000000 0x100000>;
+			interrupts = <0 6 4>;
+			interrupt-parent = <&gic>;
+			clock-names = "ref", "bus_early", "suspend";
+			clocks = <&clk20>, <&clk400>, <&clk391K>;
+			maximum-speed = "super-speed";
+		};
+
+		thumbnail: thumbnail@c0000500 {
+			compatible = "hpe,gxp-video-thumbnail";
+			reg = <0xc0000500 0x20>;
+			bits-per-pixel = <32>;
+			width = <800>;
+			height = <600>;
+		};
+
+		xreg: xreg@d1000000 {
+			compatible = "hpe,gxp-xreg", "simple-mfd", "syscon";
+			reg = <0xd1000000 0x200>;
+			interrupts = <0 26 4>;
+			interrupt-parent = <&gic>;
+			interrupt-base-offset = <0x94 0xB0>;
+			#gpio-cells = <2>;
+			gpio-line-names =
+			/*BYTE [0x00], BITS[0 - 7]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x01], BITS[8 - 15]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x02], BITS[16 - 23]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x03], BITS[24 - 31]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x04], BITS[32 - 39]*/ "", "", "", "", "", "", "POWER", "HEARTBEAT",
+			/*BYTE [0x05], BITS[40 - 47]*/ "", "", "", "", "", "", "IDENTIFY", "",
+			/*BYTE [0x06], BITS[48 - 55]*/ "", "", "", "", "", "", "HEALTH_AMBER", "HEALTH_RED",
+			/*BYTE [0x07], BITS[56 - 63]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x08], BITS[64 - 71]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x09], BITS[72 - 79]*/ "", "", "FW_VALIDATION_PASSED", "", "S5_TPS5_EN", "PS5_TS5_SS_CMP", "", "",
+			/*BYTE [0x0A], BITS[80 - 87]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x0B], BITS[88 - 95]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x0C], BITS[96 - 103]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x0D], BITS[104 - 111]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x0E], BITS[112 - 119]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x0F], BITS[120 - 127]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x10], BITS[128 - 135]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x11], BITS[136 - 143]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x12], BITS[144 - 151]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x13], BITS[152 - 159]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x14], BITS[160 - 167]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x15], BITS[168 - 175]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x16], BITS[176 - 183]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x17], BITS[184 - 191]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x18], BITS[192 - 199]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x19], BITS[200 - 207]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A], BITS[208 - 215]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B], BITS[216 - 223]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C], BITS[224 - 231]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D], BITS[232 - 239]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E], BITS[240 - 247]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F], BITS[248 - 255]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x20], BITS[256 - 263]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x21], BITS[264 - 271]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x22], BITS[272 - 279]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x23], BITS[280 - 287]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x24], BITS[288 - 295]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x25], BITS[296 - 303]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x26], BITS[304 - 311]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x27], BITS[312 - 319]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x28], BITS[320 - 327]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x29], BITS[328 - 335]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x2A], BITS[336 - 343]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x2B], BITS[344 - 351]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x2C], BITS[352 - 359]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x2D], BITS[360 - 367]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x2E], BITS[368 - 375]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x2F], BITS[376 - 383]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x30], BITS[384 - 391]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x31], BITS[392 - 399]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x32], BITS[400 - 407]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x33], BITS[408 - 415]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x34], BITS[416 - 423]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x35], BITS[424 - 431]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x36], BITS[432 - 439]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x37], BITS[440 - 447]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x38], BITS[448 - 455]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x39], BITS[456 - 463]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x3A], BITS[464 - 471]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x3B], BITS[472 - 479]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x3C], BITS[480 - 487]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x3D], BITS[488 - 495]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x3E], BITS[496 - 503]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x3F], BITS[504 - 511]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x40], BITS[512 - 519]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x41], BITS[520 - 527]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x42], BITS[528 - 535]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x43], BITS[536 - 543]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x44], BITS[544 - 551]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x45], BITS[552 - 559]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x46], BITS[560 - 567]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x47], BITS[568 - 575]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x48], BITS[576 - 583]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x49], BITS[584 - 591]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x4A], BITS[592 - 599]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x4B], BITS[600 - 607]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x4C], BITS[608 - 615]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x4D], BITS[616 - 623]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x4E], BITS[624 - 631]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x4F], BITS[632 - 639]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x50], BITS[640 - 647]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x51], BITS[648 - 655]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x52], BITS[656 - 663]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x53], BITS[664 - 671]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x54], BITS[672 - 679]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x55], BITS[680 - 687]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x56], BITS[688 - 695]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x57], BITS[696 - 703]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x58], BITS[704 - 711]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x59], BITS[712 - 719]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x5A], BITS[720 - 727]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x5B], BITS[728 - 735]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x5C], BITS[736 - 743]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x5D], BITS[744 - 751]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x5E], BITS[752 - 759]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x5F], BITS[760 - 767]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x60], BITS[768 - 775]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x61], BITS[776 - 783]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x62], BITS[784 - 791]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x63], BITS[792 - 799]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x64], BITS[800 - 807]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x65], BITS[808 - 815]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x66], BITS[816 - 823]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x67], BITS[824 - 831]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x68], BITS[832 - 839]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x69], BITS[840 - 847]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x6A], BITS[848 - 855]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x6B], BITS[856 - 863]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x6C], BITS[864 - 871]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x6D], BITS[872 - 879]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x6E], BITS[880 - 887]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x6F], BITS[888 - 895]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x70], BITS[896 - 903]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x71], BITS[904 - 911]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x72], BITS[912 - 919]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x73], BITS[920 - 927]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x74], BITS[928 - 935]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x75], BITS[936 - 943]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x76], BITS[944 - 951]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x77], BITS[952 - 959]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x78], BITS[960 - 967]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x79], BITS[968 - 975]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x7A], BITS[976 - 983]*/ "FAN1_INST", "FAN2_INST", "FAN3_INST", "FAN4_INST", "FAN5_INST", "FAN6_INST", "FAN7_INST", "FAN8_INST",
+			/*BYTE [0x7B], BITS[984 - 991]*/ "FAN9_INST", "FAN10_INST", "FAN11_INST", "FAN12_INST", "FAN13_INST", "FAN14_INST", "FAN15_INST", "FAN16_INST",
+			/*BYTE [0x7C], BITS[992 - 999]*/ "FAN1_FAIL", "FAN2_FAIL", "FAN3_FAIL", "FAN4_FAIL", "FAN5_FAIL", "FAN6_FAIL", "FAN7_FAIL", "FAN8_FAIL",
+			/*BYTE [0x7D], BITS[1000 - 1007]*/ "FAN9_FAIL", "FAN10_FAIL", "FAN11_FAIL", "FAN12_FAIL", "FAN13_FAIL", "FAN14_FAIL", "FAN15_FAIL", "FAN16_FAIL",
+			/*BYTE [0x7E], BITS[1008 - 1015]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x7F], BITS[1016 - 1023]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x80], BITS[1024 - 1031]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x81], BITS[1032 - 1039]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x82], BITS[1040 - 1047]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x83], BITS[1048 - 1055]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x84], BITS[1056 - 1063]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x85], BITS[1064 - 1071]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x86], BITS[1072 - 1079]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x87], BITS[1080 - 1087]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x88], BITS[1088 - 1095]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x89], BITS[1096 - 1103]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x8A], BITS[1104 - 1111]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x8B], BITS[1112 - 1119]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x8C], BITS[1120 - 1127]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x8D], BITS[1128 - 1135]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x8E], BITS[1136 - 1143]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x8F], BITS[1144 - 1151]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x90], BITS[1152 - 1159]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x91], BITS[1160 - 1167]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x92], BITS[1168 - 1175]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x93], BITS[1176 - 1183]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x94], BITS[1184 - 1191]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x95], BITS[1192 - 1199]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x96], BITS[1200 - 1207]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x97], BITS[1208 - 1215]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x98], BITS[1216 - 1223]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x99], BITS[1224 - 1231]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x9A], BITS[1232 - 1239]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x9B], BITS[1240 - 1247]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x9C], BITS[1248 - 1255]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x9D], BITS[1256 - 1263]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x9E], BITS[1264 - 1271]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x9F], BITS[1272 - 1279]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA0], BITS[1280 - 1287]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA1], BITS[1288 - 1295]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA2], BITS[1296 - 1303]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA3], BITS[1304 - 1311]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA4], BITS[1312 - 1319]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA5], BITS[1320 - 1327]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA6], BITS[1328 - 1335]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA7], BITS[1336 - 1343]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA8], BITS[1344 - 1351]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xA9], BITS[1352 - 1359]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xAA], BITS[1360 - 1367]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xAB], BITS[1368 - 1375]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xAC], BITS[1376 - 1383]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xAD], BITS[1384 - 1391]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xAE], BITS[1392 - 1399]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xAF], BITS[1400 - 1407]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB0], BITS[1408 - 1415]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB1], BITS[1416 - 1423]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB2], BITS[1424 - 1431]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB3], BITS[1432 - 1439]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB4], BITS[1440 - 1447]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB5], BITS[1448 - 1455]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB6], BITS[1456 - 1463]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB7], BITS[1464 - 1471]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB8], BITS[1472 - 1479]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xB9], BITS[1480 - 1487]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xBA], BITS[1488 - 1495]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xBB], BITS[1496 - 1503]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xBC], BITS[1504 - 1511]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xBD], BITS[1512 - 1519]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xBE], BITS[1520 - 1527]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xBF], BITS[1528 - 1535]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC0], BITS[1536 - 1543]*/ "", "", "", "", "NMI_BUTTON", "RESET_BUTTON", "SIO_S5", "SIO_ONCONTROL",
+			/*BYTE [0xC1], BITS[1544 - 1551]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC2], BITS[1552 - 1559]*/ "POWER_BUTTON", "", "SIO_POWER_GOOD", "", "", "", "", "",
+			/*BYTE [0xC3], BITS[1560 - 1567]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC4], BITS[1568 - 1575]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC5], BITS[1576 - 1583]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC6], BITS[1584 - 1591]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC7], BITS[1592 - 1599]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC8], BITS[1600 - 1607]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xC9], BITS[1608 - 1615]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xCA], BITS[1616 - 1623]*/ "PWR_FAULT", "", "", "", "TEMP_DEADLY", "", "", "",
+			/*BYTE [0xCB], BITS[1624 - 1631]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xCC], BITS[1632 - 1639]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xCD], BITS[1640 - 1647]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xCE], BITS[1648 - 1655]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xCF], BITS[1656 - 1663]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD0], BITS[1664 - 1671]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD1], BITS[1672 - 1679]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD2], BITS[1680 - 1687]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD3], BITS[1688 - 1695]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD4], BITS[1696 - 1703]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD5], BITS[1704 - 1711]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD6], BITS[1712 - 1719]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD7], BITS[1720 - 1727]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD8], BITS[1728 - 1735]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xD9], BITS[1736 - 1743]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xDA], BITS[1744 - 1751]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xDB], BITS[1752 - 1759]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xDC], BITS[1760 - 1767]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xDD], BITS[1768 - 1775]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xDE], BITS[1776 - 1783]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xDF], BITS[1784 - 1791]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE0], BITS[1792 - 1799]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE1], BITS[1800 - 1807]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE2], BITS[1808 - 1815]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE3], BITS[1816 - 1823]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE4], BITS[1824 - 1831]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE5], BITS[1832 - 1839]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE6], BITS[1840 - 1847]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE7], BITS[1848 - 1855]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE8], BITS[1856 - 1863]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xE9], BITS[1864 - 1871]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xEA], BITS[1872 - 1879]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xEB], BITS[1880 - 1887]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xEC], BITS[1888 - 1895]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xED], BITS[1896 - 1903]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xEE], BITS[1904 - 1911]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xEF], BITS[1912 - 1919]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF0], BITS[1920 - 1927]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF1], BITS[1928 - 1935]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF2], BITS[1936 - 1943]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF3], BITS[1944 - 1951]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF4], BITS[1952 - 1959]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF5], BITS[1960 - 1967]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF6], BITS[1968 - 1975]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF7], BITS[1976 - 1983]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF8], BITS[1984 - 1991]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xF9], BITS[1992 - 1999]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xFA], BITS[2000 - 2007]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xFB], BITS[2008 - 2015]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xFC], BITS[2016 - 2023]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xFD], BITS[2024 - 2031]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xFE], BITS[2032 - 2039]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0xFF], BITS[2040 - 2047]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x100], BITS[2048 - 2055]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x101], BITS[2056 - 2063]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x102], BITS[2064 - 2071]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x103], BITS[2072 - 2079]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x104], BITS[2080 - 2087]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x105], BITS[2088 - 2095]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x106], BITS[2096 - 2103]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x107], BITS[2104 - 2111]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x108], BITS[2112 - 2119]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x109], BITS[2120 - 2127]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x10A], BITS[2128 - 2135]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x10B], BITS[2136 - 2143]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x10C], BITS[2144 - 2151]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x10D], BITS[2152 - 2159]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x10E], BITS[2160 - 2167]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x10F], BITS[2168 - 2175]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x110], BITS[2176 - 2183]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x111], BITS[2184 - 2191]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x112], BITS[2192 - 2199]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x113], BITS[2200 - 2207]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x114], BITS[2208 - 2215]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x115], BITS[2216 - 2223]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x116], BITS[2224 - 2231]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x117], BITS[2232 - 2239]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x118], BITS[2240 - 2247]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x119], BITS[2248 - 2255]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x11A], BITS[2256 - 2263]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x11B], BITS[2264 - 2271]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x11C], BITS[2272 - 2279]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x11D], BITS[2280 - 2287]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x11E], BITS[2288 - 2295]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x11F], BITS[2296 - 2303]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x120], BITS[2304 - 2311]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x121], BITS[2312 - 2319]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x122], BITS[2320 - 2327]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x123], BITS[2328 - 2335]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x124], BITS[2336 - 2343]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x125], BITS[2344 - 2351]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x126], BITS[2352 - 2359]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x127], BITS[2360 - 2367]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x128], BITS[2368 - 2375]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x129], BITS[2376 - 2383]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x12A], BITS[2384 - 2391]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x12B], BITS[2392 - 2399]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x12C], BITS[2400 - 2407]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x12D], BITS[2408 - 2415]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x12E], BITS[2416 - 2423]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x12F], BITS[2424 - 2431]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x130], BITS[2432 - 2439]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x131], BITS[2440 - 2447]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x132], BITS[2448 - 2455]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x133], BITS[2456 - 2463]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x134], BITS[2464 - 2471]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x135], BITS[2472 - 2479]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x136], BITS[2480 - 2487]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x137], BITS[2488 - 2495]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x138], BITS[2496 - 2503]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x139], BITS[2504 - 2511]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x13A], BITS[2512 - 2519]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x13B], BITS[2520 - 2527]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x13C], BITS[2528 - 2535]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x13D], BITS[2536 - 2543]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x13E], BITS[2544 - 2551]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x13F], BITS[2552 - 2559]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x140], BITS[2560 - 2567]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x141], BITS[2568 - 2575]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x142], BITS[2576 - 2583]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x143], BITS[2584 - 2591]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x144], BITS[2592 - 2599]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x145], BITS[2600 - 2607]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x146], BITS[2608 - 2615]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x147], BITS[2616 - 2623]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x148], BITS[2624 - 2631]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x149], BITS[2632 - 2639]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x14A], BITS[2640 - 2647]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x14B], BITS[2648 - 2655]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x14C], BITS[2656 - 2663]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x14D], BITS[2664 - 2671]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x14E], BITS[2672 - 2679]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x14F], BITS[2680 - 2687]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x150], BITS[2688 - 2695]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x151], BITS[2696 - 2703]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x152], BITS[2704 - 2711]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x153], BITS[2712 - 2719]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x154], BITS[2720 - 2727]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x155], BITS[2728 - 2735]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x156], BITS[2736 - 2743]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x157], BITS[2744 - 2751]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x158], BITS[2752 - 2759]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x159], BITS[2760 - 2767]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x15A], BITS[2768 - 2775]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x15B], BITS[2776 - 2783]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x15C], BITS[2784 - 2791]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x15D], BITS[2792 - 2799]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x15E], BITS[2800 - 2807]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x15F], BITS[2808 - 2815]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x160], BITS[2816 - 2823]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x161], BITS[2824 - 2831]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x162], BITS[2832 - 2839]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x163], BITS[2840 - 2847]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x164], BITS[2848 - 2855]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x165], BITS[2856 - 2863]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x166], BITS[2864 - 2871]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x167], BITS[2872 - 2879]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x168], BITS[2880 - 2887]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x169], BITS[2888 - 2895]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x16A], BITS[2896 - 2903]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x16B], BITS[2904 - 2911]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x16C], BITS[2912 - 2919]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x16D], BITS[2920 - 2927]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x16E], BITS[2928 - 2935]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x16F], BITS[2936 - 2943]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x170], BITS[2944 - 2951]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x171], BITS[2952 - 2959]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x172], BITS[2960 - 2967]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x173], BITS[2968 - 2975]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x174], BITS[2976 - 2983]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x175], BITS[2984 - 2991]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x176], BITS[2992 - 2999]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x177], BITS[3000 - 3007]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x178], BITS[3008 - 3015]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x179], BITS[3016 - 3023]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x17A], BITS[3024 - 3031]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x17B], BITS[3032 - 3039]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x17C], BITS[3040 - 3047]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x17D], BITS[3048 - 3055]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x17E], BITS[3056 - 3063]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x17F], BITS[3064 - 3071]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x180], BITS[3072 - 3079]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x181], BITS[3080 - 3087]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x182], BITS[3088 - 3095]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x183], BITS[3096 - 3103]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x184], BITS[3104 - 3111]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x185], BITS[3112 - 3119]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x186], BITS[3120 - 3127]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x187], BITS[3128 - 3135]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x188], BITS[3136 - 3143]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x189], BITS[3144 - 3151]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x18A], BITS[3152 - 3159]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x18B], BITS[3160 - 3167]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x18C], BITS[3168 - 3175]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x18D], BITS[3176 - 3183]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x18E], BITS[3184 - 3191]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x18F], BITS[3192 - 3199]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x190], BITS[3200 - 3207]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x191], BITS[3208 - 3215]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x192], BITS[3216 - 3223]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x193], BITS[3224 - 3231]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x194], BITS[3232 - 3239]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x195], BITS[3240 - 3247]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x196], BITS[3248 - 3255]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x197], BITS[3256 - 3263]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x198], BITS[3264 - 3271]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x199], BITS[3272 - 3279]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x19A], BITS[3280 - 3287]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x19B], BITS[3288 - 3295]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x19C], BITS[3296 - 3303]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x19D], BITS[3304 - 3311]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x19E], BITS[3312 - 3319]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x19F], BITS[3320 - 3327]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A0], BITS[3328 - 3335]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A1], BITS[3336 - 3343]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A2], BITS[3344 - 3351]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A3], BITS[3352 - 3359]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A4], BITS[3360 - 3367]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A5], BITS[3368 - 3375]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A6], BITS[3376 - 3383]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A7], BITS[3384 - 3391]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A8], BITS[3392 - 3399]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1A9], BITS[3400 - 3407]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1AA], BITS[3408 - 3415]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1AB], BITS[3416 - 3423]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1AC], BITS[3424 - 3431]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1AD], BITS[3432 - 3439]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1AE], BITS[3440 - 3447]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1AF], BITS[3448 - 3455]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B0], BITS[3456 - 3463]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B1], BITS[3464 - 3471]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B2], BITS[3472 - 3479]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B3], BITS[3480 - 3487]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B4], BITS[3488 - 3495]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B5], BITS[3496 - 3503]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B6], BITS[3504 - 3511]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B7], BITS[3512 - 3519]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B8], BITS[3520 - 3527]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1B9], BITS[3528 - 3535]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1BA], BITS[3536 - 3543]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1BB], BITS[3544 - 3551]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1BC], BITS[3552 - 3559]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1BD], BITS[3560 - 3567]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1BE], BITS[3568 - 3575]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1BF], BITS[3576 - 3583]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C0], BITS[3584 - 3591]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C1], BITS[3592 - 3599]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C2], BITS[3600 - 3607]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C3], BITS[3608 - 3615]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C4], BITS[3616 - 3623]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C5], BITS[3624 - 3631]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C6], BITS[3632 - 3639]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C7], BITS[3640 - 3647]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C8], BITS[3648 - 3655]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1C9], BITS[3656 - 3663]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1CA], BITS[3664 - 3671]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1CB], BITS[3672 - 3679]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1CC], BITS[3680 - 3687]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1CD], BITS[3688 - 3695]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1CE], BITS[3696 - 3703]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1CF], BITS[3704 - 3711]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D0], BITS[3712 - 3719]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D1], BITS[3720 - 3727]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D2], BITS[3728 - 3735]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D3], BITS[3736 - 3743]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D4], BITS[3744 - 3751]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D5], BITS[3752 - 3759]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D6], BITS[3760 - 3767]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D7], BITS[3768 - 3775]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D8], BITS[3776 - 3783]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1D9], BITS[3784 - 3791]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1DA], BITS[3792 - 3799]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1DB], BITS[3800 - 3807]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1DC], BITS[3808 - 3815]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1DD], BITS[3816 - 3823]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1DE], BITS[3824 - 3831]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1DF], BITS[3832 - 3839]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E0], BITS[3840 - 3847]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E1], BITS[3848 - 3855]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E2], BITS[3856 - 3863]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E3], BITS[3864 - 3871]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E4], BITS[3872 - 3879]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E5], BITS[3880 - 3887]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E6], BITS[3888 - 3895]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E7], BITS[3896 - 3903]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E8], BITS[3904 - 3911]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1E9], BITS[3912 - 3919]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1EA], BITS[3920 - 3927]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1EB], BITS[3928 - 3935]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1EC], BITS[3936 - 3943]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1ED], BITS[3944 - 3951]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1EE], BITS[3952 - 3959]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1EF], BITS[3960 - 3967]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F0], BITS[3968 - 3975]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F1], BITS[3976 - 3983]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F2], BITS[3984 - 3991]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F3], BITS[3992 - 3999]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F4], BITS[4000 - 4007]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F5], BITS[4008 - 4015]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F6], BITS[4016 - 4023]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F7], BITS[4024 - 4031]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F8], BITS[4032 - 4039]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1F9], BITS[4040 - 4047]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1FA], BITS[4048 - 4055]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1FB], BITS[4056 - 4063]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1FC], BITS[4064 - 4071]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1FD], BITS[4072 - 4079]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1FE], BITS[4080 - 4087]*/ "", "", "", "", "", "", "", "",
+			/*BYTE [0x1FF], BITS[4088 - 4095]*/ "", "", "", "", "", "", "", "";
+		};
+
+		fanctrl: fanctrl@c0000c00 {
+			compatible = "hpe,gxp-fan-ctrl";
+			reg = <0xc0000c00 0x200>;
+			hpe,xreg = <&xreg>;
+			hpe,fn2reg = <&fn2>;
+		};
+
+		fn2: fn2@80200000 {
+			compatible = "hpe,gxp-fn2", "simple-mfd", "syscon";
+			reg = <0x80200000 0x100000>;
+			xreg_handle = <&xreg>;
+			interrupts = <0 96 4>;
+			interrupt-parent = <&gic>;
+			#gpio-cells = <2>;
+			gpio-line-names = "POWER_OUT", "PS_PWROK", "PCIERST", "POST_COMPLETE", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "", "",
+							  "", "", "", "", "";
+			chif {
+				compatible = "hpe,gxp-chif";
+				interrupts = <0 108 4>;
+				interrupt-parent = <&gic>;
+			};
+		};
+
+		csm: csm@80000000 {
+			compatible = "hpe,gxp-csm", "simple-mfd", "syscon";
+			reg = <0x80000000 0x400>;
+		};
+
+		gpio: gpio@0 {
+			compatible = "hpe,gxp-gpio";
+			#gpio-cells = <2>;
+			csm_handle = <&csm>;
+			gpio-line-names = "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "RESET_OUT", "NMI_OUT", "", "", "", "", "", "";
+		};
+
+		gpiomisc: gpio@2 {
+			compatible = "hpe,gxp-gpio-misc";
+			#gpio-cells = <2>;
+			vuhc0_handle = <&vuhc0>;
+			gpio-line-names = "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "",
+					  "", "", "", "", "", "", "", "", "", "";
+		};
+
+		leds: leds {
+			compatible = "gpio-leds";
+
+			power {
+				color = <LED_COLOR_ID_GREEN>;
+				function = LED_FUNCTION_POWER;
+				gpios = <&xreg 38 0>;
+				default-state = "off";
+			};
+
+			heartbeat {
+				color = <LED_COLOR_ID_GREEN>;
+				function = LED_FUNCTION_HEARTBEAT;
+				gpios = <&xreg 39 0>;
+				default-state = "off";
+			};
+
+			identify {
+				color = <LED_COLOR_ID_BLUE>;
+				function = LED_FUNCTION_INDICATOR;
+				gpios = <&xreg 46 0>;
+				default-state = "off";
+			};
+
+			health_red {
+				color = <LED_COLOR_ID_RED>;
+				function = LED_FUNCTION_HEALTH;
+				gpios = <&xreg 55 0>;
+				default-state = "off";
+			};
+
+			health_amber {
+				color = <LED_COLOR_ID_AMBER>;
+				function = LED_FUNCTION_HEALTH;
+				gpios = <&xreg 54 0>;
+				default-state = "off";
+			};
+		};
+
+		mid: mid@d1e10000 {
+			compatible = "simple-mfd", "syscon";
+			reg = <0xd1e10000 0xFF>;
+		};
+
+		midscan: gpio@1 {
+			compatible = "hpe,gxp-mid";
+			#gpio-cells = <2>;
+			mid_handle = <&mid>;
+			gpio-line-names =
+			/*Update as per Gen12 scan chain spec*/
+			/*BYTE 0x00, BITS[00 - 07]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x01, BITS[08 - 15]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x02, BITS[16 - 23]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x03, BITS[24 - 31]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x04, BITS[32 - 39]*/"PROC1_INST", "PROC2_INST", "PROC3_INST", "PROC4_INST", "", "", "", "",
+			/*BYTE 0x05, BITS[40 - 47]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x06, BITS[48 - 55]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x07, BITS[56 - 63]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x08, BITS[64 - 71]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x09, BITS[72 - 79]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x0A, BITS[80 - 87]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x0B, BITS[88 - 95]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x0C, BITS[96 - 103]*/ "", "", "", "", "", "", "", "",
+			/*BYTE 0x0D, BITS[104 - 111]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x0E, BITS[112 - 119]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x0F, BITS[120 - 127]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x10, BITS[128 - 135]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x11, BITS[136 - 143]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x12, BITS[144 - 151]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x13, BITS[152 - 159]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x14, BITS[160 - 167]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x15, BITS[168 - 175]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x16, BITS[176 - 183]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x17, BITS[184 - 191]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x18, BITS[192 - 199]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x19, BITS[200 - 207]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x1A, BITS[208 - 215]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x1B, BITS[216 - 223]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x1C, BITS[224 - 231]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x1D, BITS[232 - 239]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x1E, BITS[240 - 247]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x1F, BITS[248 - 255]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x20, BITS[256 - 263]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x21, BITS[264 - 271]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x22, BITS[272 - 279]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x23, BITS[280 - 287]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x24, BITS[288 - 295]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x25, BITS[296 - 303]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x26, BITS[304 - 311]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x27, BITS[312 - 319]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x28, BITS[320 - 327]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x29, BITS[328 - 335]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x2A, BITS[336 - 343]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x2B, BITS[344 - 351]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x2C, BITS[352 - 359]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x2D, BITS[360 - 367]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x2E, BITS[368 - 375]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x2F, BITS[376 - 383]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x30, BITS[384 - 391]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x31, BITS[392 - 399]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x32, BITS[400 - 407]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x33, BITS[408 - 415]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x34, BITS[416 - 423]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x35, BITS[424 - 431]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x36, BITS[432 - 439]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x37, BITS[440 - 447]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x38, BITS[448 - 455]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x39, BITS[456 - 463]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x3A, BITS[464 - 471]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x3B, BITS[472 - 479]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x3C, BITS[480 - 487]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x3D, BITS[488 - 495]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x3E, BITS[496 - 503]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x3F, BITS[504 - 511]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x40, BITS[512 - 519]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x41, BITS[520 - 527]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x42, BITS[528 - 535]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x43, BITS[536 - 543]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x44, BITS[544 - 551]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x45, BITS[552 - 559]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x46, BITS[560 - 567]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x47, BITS[568 - 575]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x48, BITS[576 - 583]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x49, BITS[584 - 591]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x4A, BITS[592 - 599]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x4B, BITS[600 - 607]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x4C, BITS[608 - 615]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x4D, BITS[616 - 623]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x4E, BITS[624 - 631]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x4F, BITS[632 - 639]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x50, BITS[640 - 647]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x51, BITS[648 - 655]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x52, BITS[656 - 663]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x53, BITS[664 - 671]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x54, BITS[672 - 679]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x55, BITS[680 - 687]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x56, BITS[688 - 695]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x57, BITS[696 - 703]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x58, BITS[704 - 711]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x59, BITS[712 - 719]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x5A, BITS[720 - 727]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x5B, BITS[728 - 735]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x5C, BITS[736 - 743]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x5D, BITS[744 - 751]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x5E, BITS[752 - 759]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x5F, BITS[760 - 767]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x60, BITS[768 - 775]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x61, BITS[776 - 783]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x62, BITS[784 - 791]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x63, BITS[792 - 799]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x64, BITS[800 - 807]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x65, BITS[808 - 815]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x66, BITS[816 - 823]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x67, BITS[824 - 831]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x68, BITS[832 - 839]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x69, BITS[840 - 847]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x6A, BITS[848 - 855]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x6B, BITS[856 - 863]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x6C, BITS[864 - 871]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x6D, BITS[872 - 879]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x6E, BITS[880 - 887]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x6F, BITS[888 - 895]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x70, BITS[896 - 903]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x71, BITS[904 - 911]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x72, BITS[912 - 919]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x73, BITS[920 - 927]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x74, BITS[928 - 935]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x75, BITS[936 - 943]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x76, BITS[944 - 951]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x77, BITS[952 - 959]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x78, BITS[960 - 967]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x79, BITS[968 - 975]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x7A, BITS[976 - 983]*/"", "", "", "", "", "", "", "",
+			/*BYTE 0x7B, BITS[984 - 991]*/"", "", "", "", "", "", "", "";
+		};
+
+		xreg_keys: xreg_keys {
+			compatible = "gpio-keys-polled";
+			poll-interval = <100>;
+
+			IdButton {
+				label = "ID Button";
+				linux,code = <200>;
+				gpios = <&xreg 1425 1>;
+			};
+		};
+
+		vuhc: vuhc {
+			compatible = "gpio-keys-polled";
+			poll-interval = <100>;
+
+			PortOwner@0 {
+				label = "Port Owner";
+				linux,code = <200>;
+				gpios = <&gpiomisc 0 1>;
+			};
+
+			PortOwner@1 {
+				label = "Port Owner";
+				linux,code = <201>;
+				gpios = <&gpiomisc 1 1>;
+			};
+
+			PortOwner@2 {
+				label = "Port Owner";
+				linux,code = <202>;
+				gpios = <&gpiomisc 2 1>;
+			};
+
+			PortOwner@3 {
+				label = "Port Owner";
+				linux,code = <203>;
+				gpios = <&gpiomisc 3 1>;
+			};
+
+			PortOwner@4 {
+				label = "Port Owner";
+				linux,code = <204>;
+				gpios = <&gpiomisc 4 1>;
+			};
+
+			PortOwner@5 {
+				label = "Port Owner";
+				linux,code = <205>;
+				gpios = <&gpiomisc 5 1>;
+			};
+		};
+
+		vuhc0: vuhc@80400000 {
+			compatible = "syscon";
+			reg = <0x80400000 0x80>;
+		};
+
+		/* For now using old gxp-udc driver */
+		/*
+		vhub: usb-hub@80400800 {
+			compatible = "hpe,gxp-hub";
+			reg = <0x80400800 0x200>, <0x80401000 0x8000>;
+			reg-names = "gxphub", "udc";
+			interrupts = <0 109 4>;
+			interrupt-parent = <&gic>;
+		};
+		*/
+
+		udcg: udcg@80400800 {
+			compatible = "syscon";
+			reg = <0x80400800 0x200>;
+		};
+
+		udc0: udc@80401000 {
+			compatible = "hpe,gxp-udc";
+			reg = <0x80401000 0x1000>;
+			interrupts = <0 109 4>;
+			interrupt-parent = <&gic>;
+			vdevnum = <0>;
+			fepnum = <4>;
+			udcg-handle = <&udcg>;
+		};
+
+		udc1: udc@80402000 {
+			compatible = "hpe,gxp-udc";
+			reg = <0x80402000 0x1000>;
+			interrupts = <0 109 4>;
+			interrupt-parent = <&gic>;
+			vdevnum = <1>;
+			fepnum = <2>;
+			udcg-handle = <&udcg>;
+		};
+
+		udc2: udc@80403000 {
+			compatible = "hpe,gxp-udc";
+			reg = <0x80403000 0x1000>;
+			interrupts = <0 109 4>;
+			interrupt-parent = <&gic>;
+			vdevnum = <2>;
+			fepnum = <2>;
+			udcg-handle = <&udcg>;
+		};
+
+		udc3: udc@80404000 {
+			compatible = "hpe,gxp-udc";
+			reg = <0x80404000 0x1000>;
+			interrupts = <0 109 4>;
+			interrupt-parent = <&gic>;
+			vdevnum = <3>;
+			fepnum = <2>;
+			udcg-handle = <&udcg>;
+		};
+
+		udc4: udc@80405000 {
+			compatible = "hpe,gxp-udc";
+			reg = <0x80405000 0x1000>;
+			interrupts = <0 109 4>;
+			interrupt-parent = <&gic>;
+			vdevnum = <4>;
+			fepnum = <3>;
+			udcg-handle = <&udcg>;
+		};
+
+		udc5: udc@80406000 {
+			compatible = "hpe,gxp-udc";
+			reg = <0x80406000 0x1000>;
+			interrupts = <0 109 4>;
+			interrupt-parent = <&gic>;
+			vdevnum = <5>;
+			fepnum = <3>;
+			udcg-handle = <&udcg>;
+		};
+
+		coretemp: coretemp@c0000130 {
+			compatible = "hpe,gxp-coretemp";
+			formula = <1>;
+			reg = <0xc0000130 0x8>;
+		};
+
+		peci: peci@80000400 {
+			compatible = "hpe,gxp-peci";
+			reg = <0x80000400 0x200>;
+			interrupts = <0 118 4>;
+			interrupt-parent = <&gic>;
+		};
+
+		/*
+		 * legacy KCS IPMI Runtime Device Registers : 80fd_0400 - 80fd_04ff
+		 */
+		kcs_reg: kcs_reg@80fd0400 {
+			compatible = "hpe,gxp-kcs-bmc";
+			reg = <0x80fd0400 0x100>, <0x80fc0400 0x100>;
+			reg-names = "base", "cfg";
+			interrupts = <0 102 4>, <0 150 4>;
+			interrupt-parent = <&gic>;
+			kcs_chan = <1>;
+			status = "okay";
+		};
+
+		/*
+		 * FN7 Device Registers : 8070_0000 - 8070_0fff
+		 *                        807f_0000 - 807f_0fff
+		 */
+		fn7reg: fn7reg@80700000 {
+			compatible = "generic-uio";
+			linux,uio-name = "vtpm";
+			reg = <0x80700000 0x1000>, <0x807f0000 0x1000>;
+			reg-names = "vtpm_reg", "vtpm_cfg";
+			interrupts = <0 121 4>;
+			interrupt-names = "vtpm";
+			interrupt-parent = <&gic>;
+			number-of-dynamic-regions = <1>;
+			dynamic-regions-sizes = <0x41000>;
+			dma-bits = <0x40>;
+		};
+
+	};
+
+	/*
+	 * PCIe Root Port
+	 */
+	pcie: pcie@94000000 {
+		/* NOTE: disabled by default, set to 'okay' for designs that use PCIe RC */
+		status = "disabled";
+		/*
+		 * For SanJac, must use 'linkcheck' driver to verify link up before PCIe
+		 * config reads, to avoid a fatal exception during probe if no device present
+		 */
+		compatible = "pci-host-ecam-generic-linkcheck";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		reg = <0x90000000 0x1000000>;
+		ranges = <0x02000000 0 0xB0000000 0xB0000000 0 0x10000000>, /* 256MB non-prefetchable memory */
+			 <0x01000000 0 0x91000000 0x91000000 0 0x00010000>; /* 64KB I/O space */
+		bus-range = <0x00 0x0F>; /* Defining ECAM space for 16 buses */
+		#interrupt-cells = <1>;
+		interrupt-map = <0xc000 0x0 0x0 0x1 &gic 0x0 92 0x4>,
+				<0xc000 0x0 0x0 0x2 &gic 0x0 93 0x4>,
+				<0xc000 0x0 0x0 0x3 &gic 0x0 94 0x4>,
+				<0xc000 0x0 0x0 0x4 &gic 0x0 95 0x4>;
+		interrupt-map-mask = <0xc000 0x0 0x0 7>;
+	};
+};

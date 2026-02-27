@@ -461,6 +461,16 @@ config USB_ASPEED_UDC
 	  dynamically linked module called "aspeed_udc" and force all
 	  gadget drivers to also be dynamically linked.
 
+config USB_GXP_UDC
+	bool "GXP HUB DRIVER"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC || COMPILE_TEST
+	help
+	  Enables HPE GXP HUB driver for HPE GXP. The GXP HUB
+	  supports 4 ports. Each port supports 1 control
+	  endpoint and 4 programmable endpoints.
+
+	  Say "y" to add support for GXP HUB driver
+
 source "drivers/usb/gadget/udc/aspeed-vhub/Kconfig"
 
 source "drivers/usb/gadget/udc/cdns2/Kconfig"

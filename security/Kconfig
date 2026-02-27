@@ -225,6 +225,7 @@ source "security/safesetid/Kconfig"
 source "security/lockdown/Kconfig"
 source "security/landlock/Kconfig"
 source "security/ipe/Kconfig"
+source "security/ztcp/Kconfig"
 
 source "security/integrity/Kconfig"
 
@@ -234,6 +235,7 @@ choice
 	default DEFAULT_SECURITY_SMACK if SECURITY_SMACK
 	default DEFAULT_SECURITY_TOMOYO if SECURITY_TOMOYO
 	default DEFAULT_SECURITY_APPARMOR if SECURITY_APPARMOR
+	default DEFAULT_SECURITY_ZTCP if SECURITY_ZTCP
 	default DEFAULT_SECURITY_DAC
 
 	help
@@ -260,6 +262,9 @@ choice
 	config DEFAULT_SECURITY_DAC
 		bool "Unix Discretionary Access Controls"
 
+    config DEFAULT_SECURITY_ZTCP
+        bool "Zero Trust Container Platform"
+
 endchoice
 
 config LSM
@@ -269,6 +274,7 @@ config LSM
 	default "landlock,lockdown,yama,loadpin,safesetid,apparmor,selinux,smack,tomoyo,ipe,bpf" if DEFAULT_SECURITY_APPARMOR
 	default "landlock,lockdown,yama,loadpin,safesetid,tomoyo,ipe,bpf" if DEFAULT_SECURITY_TOMOYO
 	default "landlock,lockdown,yama,loadpin,safesetid,ipe,bpf" if DEFAULT_SECURITY_DAC
+	default "ztcp,bpf" if DEFAULT_SECURITY_ZTCP
 	default "landlock,lockdown,yama,loadpin,safesetid,selinux,smack,tomoyo,apparmor,ipe,bpf"
 	help
 	  A comma-separated list of LSMs, in initialization order.

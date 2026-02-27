@@ -1,0 +1,94 @@
+config SOC_VENDOR_HPE
+	bool "HPE SoC drivers"
+	default y
+	depends on ARCH_HPE
+
+if SOC_VENDOR_HPE
+
+config HPE_GXP_SOCLIB
+	bool
+	default n
+
+config HPE_GXP_FIX_GEN11_ME_ISSUE
+	bool "GXP ME Workaround on SaphireRapids processors"
+	depends on ARCH_HPE_GXP
+	help
+	  Say yes here to work around ME issues on Saphire rapids
+	  processors on Virtual Power Button Press
+
+config HPE_GXP_SROM
+	bool "GXP SROM Support"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC
+	select HPE_GXP_SOCLIB
+	select MFD_CORE
+	help
+	  Say yes here to add support for SROM Configuration.
+
+config HPE_GXP_CHIF
+	bool "GXP CHIF Support"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC
+	select HPE_GXP_SOCLIB
+	help
+	  Say yes here to add support for CHIF
+
+config HPE_GXP_SE
+	bool "GXP SE Support"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC
+	select HPE_GXP_SOCLIB
+	help
+	  Say yes here to add support for SE
+
+
+config HPE_GXP_GPIO_MISC
+	bool "GXP MISC GPIO Support"
+	depends on ARCH_HPE_GXP || ARCH_HPE_GSC
+	select HPE_GXP_SOCLIB
+	help
+	  Say yes here to add support for GPIO MISC.
+
+config HPE_GXP_KW_REG
+	bool "Enable sysfs interface for KW only reg."
+	depends on ARCH_HPE_GSC
+	help
+	  Say yes here to add sysfs interfaces for KW only reg to write
+	  from userspace.
+
+config HPE_GSC_POWEROFF
+	bool "Enable notification for kernel restart handler"
+	depends on ARCH_HPE_GSC
+	help
+	  Say yes here to register for kernel restart notification
+
+config HPE_GXP_CPU
+	bool "GXP CPU Presence GPIO driver"
+	depends on ARCH_HPE_GXP
+	select HPE_GXP_SOCLIB
+	help
+	  Say yes here to add support for CPU Presence
+
+config HPE_GXP_VIRT_EEPROM
+	bool "GXP Virtual EEPROM Support"
+	depends on ARCH_HPE_GXP
+	depends on I2C
+	select HPE_GXP_SOCLIB
+	help
+	  Say yes here to add support for the Virtual EEPROM.
+
+config HPE_GXP_DBG
+	bool "GXP host debug post message support"
+	depends on ARCH_HPE_GXP
+	select HPE_GXP_SOCLIB
+	help
+	  Say yes here to add support for host debug driver support.
+
+config HPE_GXP_RELEASE
+	bool "GXP release build support"
+	select HPE_GXP_SOCLIB
+	default n
+	help
+	  This flag removes unwanted implementaions
+	  or features
+	  for release kernel
+	  Say yes for release kernel.
+	  It removes unused Kernel write only register sysfs interfaces.
+endif

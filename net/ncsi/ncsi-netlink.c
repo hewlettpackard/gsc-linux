@@ -100,7 +100,7 @@ static int ncsi_write_package_info(struct sk_buff *skb,
 	bool found;
 	int rc;
 
-	if (id > ndp->package_num - 1) {
+	if (id > NCSI_MAX_PACKAGE_ID) {
 		netdev_info(ndp->ndev.dev, "NCSI: No package with id %u\n", id);
 		return -ENODEV;
 	}
@@ -219,6 +219,8 @@ static int ncsi_pkg_info_all_nl(struct sk_buff *skb,
 	struct nlattr *attr;
 	void *hdr;
 	int rc;
+	unsigned int idx = 0;
+
 
 	rc = genlmsg_parse_deprecated(cb->nlh, &ncsi_genl_family, attrs, NCSI_ATTR_MAX,
 				      ncsi_genl_policy, NULL);
@@ -234,11 +236,17 @@ static int ncsi_pkg_info_all_nl(struct sk_buff *skb,
 	if (!ndp)
 		return -ENODEV;
 
-	package_id = cb->args[0];
+	package_id = cb->args[0]; // Get the package INDEX (not ID) from callback arguments
 	package = NULL;
-	NCSI_FOR_EACH_PACKAGE(ndp, np)
-		if (np->id == package_id)
+	
+	/* Find the package at the given index position */
+	NCSI_FOR_EACH_PACKAGE(ndp, np) {
+		if (idx == package_id) {
 			package = np;
+			break;
+		}
+		idx++;
+	}
 
 	if (!package)
 		return 0; /* done */
@@ -280,39 +288,62 @@ static int ncsi_set_interface_nl(struct sk_buff *msg, struct genl_info *info)
 	struct ncsi_dev_priv *ndp;
 	unsigned long flags;
 
-	if (!info || !info->attrs)
+	if (!info || !info->attrs) {
+		pr_debug("NCSI: set_interface info or attrs is NULL\n");
 		return -EINVAL;
+	}
 
-	if (!info->attrs[NCSI_ATTR_IFINDEX])
+	if (!info->attrs[NCSI_ATTR_IFINDEX]) {
+		pr_debug("NCSI: set_interface IFINDEX attr missing\n");
 		return -EINVAL;
+	}
 
-	if (!info->attrs[NCSI_ATTR_PACKAGE_ID])
+	if (!info->attrs[NCSI_ATTR_PACKAGE_ID]) {
+		pr_debug("NCSI: set_interface PACKAGE_ID attr missing\n");
 		return -EINVAL;
+	}
 
 	ndp = ndp_from_ifindex(get_net(sock_net(msg->sk)),
 			       nla_get_u32(info->attrs[NCSI_ATTR_IFINDEX]));
-	if (!ndp)
+	if (!ndp) {
+		pr_debug("NCSI: set_interface device instance not found\n");
 		return -ENODEV;
+	}
+
+	netdev_dbg(ndp->ndev.dev, "NCSI: In %s\n", __func__);
 
 	package_id = nla_get_u32(info->attrs[NCSI_ATTR_PACKAGE_ID]);
 	package = NULL;
 
-	NCSI_FOR_EACH_PACKAGE(ndp, np)
-		if (np->id == package_id)
+	netdev_dbg(ndp->ndev.dev, "NCSI: set_interface package_id=%u\n", package_id);
+
+	NCSI_FOR_EACH_PACKAGE(ndp, np) {
+		netdev_dbg(ndp->ndev.dev, "NCSI: package id=0x%x\n", np->id);
+		if (np->id == package_id) {
 			package = np;
+			netdev_dbg(ndp->ndev.dev, "NCSI: found package id=%u\n", package_id);
+		}
+	}
 	if (!package) {
 		/* The user has set a package that does not exist */
+		netdev_dbg(ndp->ndev.dev, "NCSI: package %u not found\n", package_id);
 		return -ERANGE;
 	}
 
 	channel = NULL;
 	if (info->attrs[NCSI_ATTR_CHANNEL_ID]) {
 		channel_id = nla_get_u32(info->attrs[NCSI_ATTR_CHANNEL_ID]);
-		NCSI_FOR_EACH_CHANNEL(package, nc)
+		netdev_dbg(ndp->ndev.dev, "NCSI: channel_id=%u\n", channel_id);
+		NCSI_FOR_EACH_CHANNEL(package, nc) {
+			netdev_dbg(ndp->ndev.dev, "NCSI: channel id=0x%x\n", nc->id);
 			if (nc->id == channel_id) {
+				netdev_dbg(ndp->ndev.dev,
+					   "NCSI: found channel id=%u\n",
+					   channel_id);
 				channel = nc;
 				break;
 			}
+		}
 		if (!channel) {
 			netdev_info(ndp->ndev.dev,
 				    "NCSI: Channel %u does not exist!\n",
@@ -320,6 +351,8 @@ static int ncsi_set_interface_nl(struct sk_buff *msg, struct genl_info *info)
 			return -ERANGE;
 		}
 	}
+
+	netdev_dbg(ndp->ndev.dev, "NCSI: channel validation success\n");
 
 	spin_lock_irqsave(&ndp->lock, flags);
 	ndp->package_whitelist = 0x1 << package->id;
@@ -346,6 +379,8 @@ static int ncsi_set_interface_nl(struct sk_buff *msg, struct genl_info *info)
 		netdev_info(ndp->ndev.dev, "Set package 0x%x as preferred\n",
 			    package_id);
 
+	netdev_dbg(ndp->ndev.dev, "NCSI: updating configuration, performing reset\n");
+
 	/* Update channel configuration */
 	if (!(ndp->flags & NCSI_DEV_RESET))
 		ncsi_reset_dev(&ndp->ndev);
@@ -359,16 +394,24 @@ static int ncsi_clear_interface_nl(struct sk_buff *msg, struct genl_info *info)
 	struct ncsi_package *np;
 	unsigned long flags;
 
-	if (!info || !info->attrs)
+	if (!info || !info->attrs) {
+		pr_debug("NCSI: clear_interface info or attrs is NULL\n");
 		return -EINVAL;
+	}
 
-	if (!info->attrs[NCSI_ATTR_IFINDEX])
+	if (!info->attrs[NCSI_ATTR_IFINDEX]) {
+		pr_debug("NCSI: clear_interface IFINDEX attr missing\n");
 		return -EINVAL;
+	}
 
 	ndp = ndp_from_ifindex(get_net(sock_net(msg->sk)),
 			       nla_get_u32(info->attrs[NCSI_ATTR_IFINDEX]));
-	if (!ndp)
+	if (!ndp) {
+		pr_debug("NCSI: clear_interface device not found\n");
 		return -ENODEV;
+	}
+
+	netdev_dbg(ndp->ndev.dev, "NCSI: In %s\n", __func__);
 
 	/* Reset any whitelists and disable multi mode */
 	spin_lock_irqsave(&ndp->lock, flags);
@@ -382,6 +425,8 @@ static int ncsi_clear_interface_nl(struct sk_buff *msg, struct genl_info *info)
 		np->channel_whitelist = UINT_MAX;
 		np->preferred_channel = NULL;
 		spin_unlock_irqrestore(&np->lock, flags);
+
+		netdev_dbg(ndp->ndev.dev, "NCSI: clearing channels for package\n");
 	}
 	netdev_info(ndp->ndev.dev, "NCSI: Cleared preferred package/channel\n");
 
@@ -403,6 +448,11 @@ static int ncsi_send_cmd_nl(struct sk_buff *msg, struct genl_info *info)
 	int len, ret;
 
 	if (!info || !info->attrs) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (!info->nlhdr) {
 		ret = -EINVAL;
 		goto out;
 	}

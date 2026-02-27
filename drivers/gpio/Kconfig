@@ -1358,6 +1358,13 @@ config HTC_EGPIO
 	  several HTC phones.  It provides basic support for input
 	  pins, output pins, and IRQs.
 
+config GPIO_GXP
+	bool "GXP GPIO support"
+	select GPIOLIB_IRQCHIP
+	depends on HPE_GXP_CSM && OF_GPIO
+	help
+	  Say yes here to support GXP GPIO controllers.
+
 config GPIO_ELKHARTLAKE
 	tristate "Intel Elkhart Lake PSE GPIO support"
 	depends on X86 || COMPILE_TEST

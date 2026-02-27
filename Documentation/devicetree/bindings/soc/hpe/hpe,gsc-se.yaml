@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/soc/hpe/hpe,gsc-se.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: HPE GSC Security Enclave Interface
+
+maintainers:
+  - Nick Hawkins <nick.hawkins@hpe.com>
+
+description:
+  The GSC soc houses a separate chip called Security Enclave. This
+  interface allows interruptable communication with that chip.
+
+properties:
+  compatible:
+    const: hpe,gsc-se
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    enclave@cefd0000 {
+        compatible = "hpe,gsc-se";
+        reg = <0xcefd0000 0x10000>;
+        interrupts = <0 3 4>;
+    };

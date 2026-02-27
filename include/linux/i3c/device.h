@@ -74,9 +74,11 @@ struct i3c_priv_xfer {
 /**
  * enum i3c_dcr - I3C DCR values
  * @I3C_DCR_GENERIC_DEVICE: generic I3C device
+ * @I3C_DCR_HUB: I3C HUB device
  */
 enum i3c_dcr {
 	I3C_DCR_GENERIC_DEVICE = 0,
+	I3C_DCR_HUB = 194,
 };
 
 #define I3C_PID_MANUF_ID(pid)		(((pid) & GENMASK_ULL(47, 33)) >> 33)
@@ -183,7 +185,10 @@ struct i3c_driver {
 	const struct i3c_device_id *id_table;
 };
 
-#define drv_to_i3cdrv(__drv)	container_of_const(__drv, struct i3c_driver, driver)
+static inline struct i3c_driver *drv_to_i3cdrv(struct device_driver *drv)
+{
+	return container_of(drv, struct i3c_driver, driver);
+}
 
 struct device *i3cdev_to_dev(struct i3c_device *i3cdev);
 

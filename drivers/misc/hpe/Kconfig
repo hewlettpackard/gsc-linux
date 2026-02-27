@@ -1,0 +1,7 @@
+config GSC_COMMON_PHY
+	bool "Common Phy Support"
+	depends on ARCH_HPE_GSC
+	help
+	  Say yes here to add support for the GSC Common Phy driver
+	  used commonly for both Ethernet and DisplayPort
+

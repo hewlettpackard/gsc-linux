@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/rtc/hpe,gsc-rtc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: HPE GSC RTC Controller
+
+maintainers:
+  - Nick Hawkins <nick.hawkins@hpe.com>
+
+properties:
+  compatible:
+    const: hpe,gsc-rtc
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - interrupts
+
+additionalProperties: false
+
+examples:
+  - |
+    rtc@c0000600 {
+        compatible = "hpe,gsc-rtc";
+        reg = <0xc0000600 0x100>;
+        interrupts = <9>;
+    };

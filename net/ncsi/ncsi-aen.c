@@ -56,6 +56,7 @@ static int ncsi_aen_handler_lsc(struct ncsi_dev_priv *ndp,
 	bool chained;
 	int state;
 
+	netdev_dbg(ndp->ndev.dev, "NCSI: In %s\n", __func__);
 	/* Find the NCSI channel */
 	ncsi_find_package_and_channel(ndp, h->common.channel, NULL, &nc);
 	if (!nc)
@@ -88,6 +89,11 @@ static int ncsi_aen_handler_lsc(struct ncsi_dev_priv *ndp,
 
 	if ((had_link == has_link) || chained)
 		return 0;
+
+	if (had_link)
+		netif_carrier_off(ndp->ndev.dev);
+	else
+		netif_carrier_on(ndp->ndev.dev);
 
 	if (!ndp->multi_package && !nc->package->multi_channel) {
 		if (had_link) {
@@ -143,6 +149,8 @@ static int ncsi_aen_handler_cr(struct ncsi_dev_priv *ndp,
 	struct ncsi_channel *nc;
 	unsigned long flags;
 
+	netdev_dbg(ndp->ndev.dev, "NCSI: In %s\n", __func__);
+
 	/* Find the NCSI channel */
 	ncsi_find_package_and_channel(ndp, h->common.channel, NULL, &nc);
 	if (!nc)
@@ -178,6 +186,7 @@ static int ncsi_aen_handler_hncdsc(struct ncsi_dev_priv *ndp,
 	struct ncsi_aen_hncdsc_pkt *hncdsc;
 	unsigned long flags;
 
+	netdev_dbg(ndp->ndev.dev, "NCSI: In %s\n", __func__);
 	/* Find the NCSI channel */
 	ncsi_find_package_and_channel(ndp, h->common.channel, NULL, &nc);
 	if (!nc)

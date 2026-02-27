@@ -1172,17 +1172,27 @@ int ncsi_rcv_rsp(struct sk_buff *skb, struct net_device *dev,
 	struct ncsi_pkt_hdr *hdr;
 	unsigned long flags;
 	int payload, i, ret;
+	struct ncsi_rsp_pkt_hdr *resp;
 
 	/* Find the NCSI device */
 	nd = ncsi_find_dev(orig_dev);
 	ndp = nd ? TO_NCSI_DEV_PRIV(nd) : NULL;
-	if (!ndp)
+	if (!ndp) {
+		pr_debug("NCSI: rcv_rsp device not found\n");
 		return -ENODEV;
+	}
+
+	nd->is_replying = 1;
 
 	/* Check if it is AEN packet */
 	hdr = (struct ncsi_pkt_hdr *)skb_network_header(skb);
-	if (hdr->type == NCSI_PKT_AEN)
+	netdev_dbg(ndp->ndev.dev,
+		   "NCSI: rcv_rsp iid=0x%02x type=0x%02x ch=0x%02x\n",
+		   hdr->id, hdr->type, hdr->channel);
+	if (hdr->type == NCSI_PKT_AEN) {
+		netdev_dbg(ndp->ndev.dev, "NCSI: rcv_rsp received AEN packet\n");
 		return ncsi_aen_handler(ndp, skb);
+	}
 
 	/* Find the handler */
 	for (i = 0; i < ARRAY_SIZE(ncsi_rsp_handlers); i++) {
@@ -1195,6 +1205,12 @@ int ncsi_rcv_rsp(struct sk_buff *skb, struct net_device *dev,
 			break;
 		}
 	}
+
+	resp = (struct ncsi_rsp_pkt_hdr *)skb_network_header(skb);
+	netdev_dbg(ndp->ndev.dev,
+		   "NCSI: rcv_rsp iid=0x%02x type=0x%02x ch=0x%02x code=0x%04x reason=0x%04x\n",
+		   resp->common.id, resp->common.type, resp->common.channel,
+		   ntohs(resp->code), ntohs(resp->reason));
 
 	if (!nrh) {
 		netdev_err(nd->dev, "Received unrecognized packet (0x%x)\n",

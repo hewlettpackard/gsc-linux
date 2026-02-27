@@ -1,0 +1,7 @@
+config DISPLAY_PORT_DRIVER
+	bool "Display Port Driver For Sanjac"
+	depends on ARCH_HPE_GSC
+	help
+	  Say yes here to add support for the display port driver
+	  for sanjac
+

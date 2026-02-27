@@ -36,6 +36,24 @@ struct mtd_file_info {
 	enum mtd_file_modes mode;
 };
 
+/*
+ * Helper function to get the largest erase size for reporting to userspace.
+ * For userspace tools (like flashcp), we want to report the largest available
+ * erase size to enable faster programming, while kernel consumers like JFFS2
+ * continue to use the conservative mtd->erasesize value.
+ */
+static uint32_t mtd_get_userspace_erasesize(struct mtd_info *mtd)
+{
+	/*
+	 * If the driver has populated erasesize_max (e.g., spi-nor), use it.
+	 * Otherwise, fall back to the standard erasesize.
+	 */
+	if (mtd->erasesize_max && mtd->erasesize_max >= mtd->erasesize)
+		return mtd->erasesize_max;
+
+	return mtd->erasesize;
+}
+
 static loff_t mtdchar_lseek(struct file *file, loff_t offset, int orig)
 {
 	struct mtd_file_info *mfi = file->private_data;
@@ -909,7 +927,13 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 		info.type	= mtd->type;
 		info.flags	= mtd->flags;
 		info.size	= mtd->size;
-		info.erasesize	= mtd->erasesize;
+		/*
+		 * Report the largest available erase size to userspace.
+		 * This allows tools like flashcp to use larger erase blocks
+		 * for faster programming, while kernel consumers (like JFFS2)
+		 * continue to use the conservative mtd->erasesize value.
+		 */
+		info.erasesize	= mtd_get_userspace_erasesize(mtd);
 		info.writesize	= mtd->writesize;
 		info.oobsize	= mtd->oobsize;
 		/* The below field is obsolete */

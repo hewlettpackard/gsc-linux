@@ -26,6 +26,7 @@ enum {
 struct ncsi_dev {
 	int               state;
 	int		  link_up;
+	int		  is_replying; /* Work around to report failures */
 	struct net_device *dev;
 	void		  (*handler)(struct ncsi_dev *ndev);
 };

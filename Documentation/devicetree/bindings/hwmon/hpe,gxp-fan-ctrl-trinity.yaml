@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+
+$id: http://devicetree.org/schemas/hwmon/hpe,gxp-fan-ctrl-trinity.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: HPE GXP Fan Controller
+
+maintainers:
+  - Nick Hawkins <nick.hawkins@hpe.com>
+
+description: |
+  The HPE GXP fan controller controls the fans through an external CPLD
+  device that connects to the fans.
+
+properties:
+  compatible:
+    const: hpe,gxp-fan-ctrl-trinity
+
+  reg:
+    maxItems: 1
+
+  hpe,xreg:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      Phandle to the xregister interface where fan information is available.
+
+  hpe,fn2reg:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description:
+      Phandle to the fn2 interface where power information is available.
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    fan-controller@c0000c00 {
+        compatible = "hpe,gxp-fan-ctrl-trinity";
+        reg = <0xc0000c00 0x200>;
+        hpe,xreg = <&sysreg_system_controller>;
+        hpe,fn2reg = <&sysreg_system_controller2>;
+    };

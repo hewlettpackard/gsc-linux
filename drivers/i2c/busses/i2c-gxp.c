@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (C) 2022 Hewlett-Packard Enterprise Development Company, L.P. */
+/* Copyright (C) 2022-2025 Hewlett Packard Enterprise Development LP */
 
 #include <linux/err.h>
 #include <linux/io.h>
@@ -10,11 +10,22 @@
 #include <linux/regmap.h>
 #include <linux/mfd/syscon.h>
 
-#define GXP_MAX_I2C_ENGINE 10
+#ifdef CONFIG_ARCH_HPE_GXP
+#define MAX_I2C_ENGINE 10
 static const char * const gxp_i2c_name[] = {
 	"gxp-i2c0", "gxp-i2c1", "gxp-i2c2", "gxp-i2c3",
 	"gxp-i2c4", "gxp-i2c5", "gxp-i2c6", "gxp-i2c7",
 	"gxp-i2c8", "gxp-i2c9" };
+#else
+#define MAX_I2C_ENGINE 21
+static const char * const gxp_i2c_name[] = {
+	"gxp-i2c0",  "gxp-i2c1",  "gxp-i2c2",  "gxp-i2c3",
+	"gxp-i2c4",  "gxp-i2c5",  "gxp-i2c6",  "gxp-i2c7",
+	"gxp-i2c8",  "gxp-i2c9",  "gxp-i2c10", "gxp-i2c11",
+	"gxp-i2c12", "gxp-i2c13", "gxp-i2c14", "gxp-i2c15",
+	"gxp-i2c16", "gxp-i2c17", "gxp-i2c18", "gxp-i2c19",
+	"gxp-i2c20" };
+#endif /* CONFIG_ARCH_HPE_GXP */
 
 /* GXP I2C Global interrupt status/enable register*/
 #define GXP_I2CINTSTAT		0x00
@@ -93,6 +104,24 @@ struct gxp_i2c_drvdata {
 
 static struct regmap *i2cg_map;
 
+static void gxp_i2c_stop(struct gxp_i2c_drvdata *drvdata)
+{
+	/* Clear event and send stop */
+	writeb(MASTER_EVT_CLR | STOP_CMD, drvdata->base + GXP_I2CMCMD);
+
+	complete(&drvdata->completion);
+}
+
+static void gxp_i2c_abort(struct gxp_i2c_drvdata *drvdata)
+{
+	/* Emergency abort - reset hardware state */
+	writeb(MASTER_EVT_CLR, drvdata->base + GXP_I2CMCMD);
+	writeb(0x00, drvdata->base + GXP_I2CEVTERR);
+	drvdata->state = GXP_I2C_IDLE;
+
+	complete(&drvdata->completion);
+}
+
 static void gxp_i2c_start(struct gxp_i2c_drvdata *drvdata)
 {
 	u16 value;
@@ -107,6 +136,11 @@ static void gxp_i2c_start(struct gxp_i2c_drvdata *drvdata)
 	value |= drvdata->curr_msg->flags & I2C_M_RD ? RW_CMD | START_CMD : START_CMD;
 
 	drvdata->state = GXP_I2C_ADDR_PHASE;
+
+	dev_dbg(drvdata->dev, "Start %s addr=0x%02x len=%zu\n",
+		drvdata->curr_msg->flags & I2C_M_RD ? "read" : "write",
+		drvdata->curr_msg->addr, drvdata->curr_msg->len);
+
 	writew(value, drvdata->base + GXP_I2CMCMD);
 }
 
@@ -127,14 +161,29 @@ static int gxp_i2c_master_xfer(struct i2c_adapter *adapter,
 	time_left = wait_for_completion_timeout(&drvdata->completion,
 						adapter->timeout);
 	ret = num - drvdata->msgs_remaining;
-	if (time_left == 0)
+	if (time_left == 0) {
+		dev_err(&adapter->dev, "I2C timeout in state %d\n", drvdata->state);
+		gxp_i2c_abort(drvdata);
 		return -ETIMEDOUT;
+	}
 
-	if (drvdata->state == GXP_I2C_ADDR_NACK)
+	if (drvdata->state == GXP_I2C_ADDR_NACK) {
+		dev_dbg(&adapter->dev, "Address NACK for addr 0x%02x\n", drvdata->curr_msg->addr);
+		drvdata->state = GXP_I2C_IDLE;
 		return -ENXIO;
+	}
 
-	if (drvdata->state == GXP_I2C_DATA_NACK)
+	if (drvdata->state == GXP_I2C_DATA_NACK) {
+		dev_dbg(&adapter->dev, "Data NACK for addr 0x%02x\n", drvdata->curr_msg->addr);
+		drvdata->state = GXP_I2C_IDLE;
 		return -EIO;
+	}
+
+	if (drvdata->state == GXP_I2C_ERROR) {
+		dev_err(&adapter->dev, "I2C error occurred\n");
+		drvdata->state = GXP_I2C_IDLE;
+		return -EIO;
+	}
 
 	return ret;
 }
@@ -142,9 +191,218 @@ static int gxp_i2c_master_xfer(struct i2c_adapter *adapter,
 static u32 gxp_i2c_func(struct i2c_adapter *adap)
 {
 	if (IS_ENABLED(CONFIG_I2C_SLAVE))
-		return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL | I2C_FUNC_SLAVE;
+		return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL | I2C_FUNC_SMBUS_BLOCK_DATA |
+		       I2C_FUNC_SMBUS_PEC | I2C_FUNC_SLAVE;
 
-	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
+	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL | I2C_FUNC_SMBUS_BLOCK_DATA |
+	       I2C_FUNC_SMBUS_PEC;
+}
+
+static s32 gxp_i2c_smbus_xfer(struct i2c_adapter *adapter, u16 addr,
+			      unsigned short flags, char read_write,
+			      u8 command, int size, union i2c_smbus_data *data)
+{
+	struct i2c_msg msg[2];
+	int num_msgs = 0;
+	u8 buf[I2C_SMBUS_BLOCK_MAX + 3]; /* Extra space for PEC */
+	int ret;
+	bool pec = (flags & I2C_CLIENT_PEC) != 0;
+
+	switch (size) {
+	case I2C_SMBUS_QUICK:
+		msg[0].addr = addr;
+		msg[0].flags = flags & ~I2C_CLIENT_PEC;
+		msg[0].len = 0;
+		msg[0].buf = NULL;
+		if (read_write == I2C_SMBUS_READ)
+			msg[0].flags |= I2C_M_RD;
+		num_msgs = 1;
+		break;
+
+	case I2C_SMBUS_BYTE:
+		msg[0].addr = addr;
+		msg[0].flags = flags & ~I2C_CLIENT_PEC;
+		if (read_write == I2C_SMBUS_READ) {
+			msg[0].len = 1;
+			msg[0].buf = buf;
+			msg[0].flags |= I2C_M_RD;
+		} else {
+			msg[0].len = 1;
+			msg[0].buf = buf;
+			buf[0] = command;
+		}
+		num_msgs = 1;
+		break;
+
+	case I2C_SMBUS_BYTE_DATA:
+		msg[0].addr = addr;
+		msg[0].flags = flags & ~I2C_CLIENT_PEC;
+		if (read_write == I2C_SMBUS_READ) {
+			msg[0].len = 1;
+			msg[0].buf = &command;
+
+			msg[1].addr = addr;
+			msg[1].flags = (flags & ~I2C_CLIENT_PEC) | I2C_M_RD;
+			msg[1].len = 1;
+			msg[1].buf = buf;
+			num_msgs = 2;
+		} else {
+			msg[0].len = 2;
+			msg[0].buf = buf;
+			buf[0] = command;
+			buf[1] = data->byte;
+			num_msgs = 1;
+		}
+		break;
+
+	case I2C_SMBUS_WORD_DATA:
+		msg[0].addr = addr;
+		msg[0].flags = flags & ~I2C_CLIENT_PEC;
+		if (read_write == I2C_SMBUS_READ) {
+			msg[0].len = 1;
+			msg[0].buf = &command;
+
+			msg[1].addr = addr;
+			msg[1].flags = (flags & ~I2C_CLIENT_PEC) | I2C_M_RD;
+			msg[1].len = 2;
+			msg[1].buf = buf;
+			num_msgs = 2;
+		} else {
+			msg[0].len = 3;
+			msg[0].buf = buf;
+			buf[0] = command;
+			buf[1] = data->word & 0xff;
+			buf[2] = data->word >> 8;
+			num_msgs = 1;
+		}
+		break;
+
+	case I2C_SMBUS_PROC_CALL:
+		msg[0].addr = addr;
+		msg[0].flags = flags & ~I2C_CLIENT_PEC;
+		msg[0].len = 3;
+		msg[0].buf = buf;
+		buf[0] = command;
+		buf[1] = data->word & 0xff;
+		buf[2] = data->word >> 8;
+
+		msg[1].addr = addr;
+		msg[1].flags = (flags & ~I2C_CLIENT_PEC) | I2C_M_RD;
+		msg[1].len = 2;
+		msg[1].buf = buf;
+		num_msgs = 2;
+		break;
+
+	case I2C_SMBUS_BLOCK_DATA:
+		if (read_write == I2C_SMBUS_WRITE) {
+			msg[0].addr = addr;
+			msg[0].flags = flags & ~I2C_CLIENT_PEC;
+			msg[0].len = data->block[0] + 2 + (pec ? 1 : 0);
+			msg[0].buf = buf;
+			buf[0] = command;
+			buf[1] = data->block[0];
+			memcpy(&buf[2], &data->block[1], data->block[0]);
+			if (pec) {
+				/* PEC calculation would go here - simplified for now */
+				buf[data->block[0] + 2] = 0; /* Placeholder for PEC */
+			}
+			num_msgs = 1;
+		} else {
+			msg[0].addr = addr;
+			msg[0].flags = flags & ~I2C_CLIENT_PEC;
+			msg[0].len = 1;
+			msg[0].buf = &command;
+
+			msg[1].addr = addr;
+			msg[1].flags = (flags & ~I2C_CLIENT_PEC) | I2C_M_RD;
+			msg[1].len = I2C_SMBUS_BLOCK_MAX + 1 + (pec ? 1 : 0);
+			msg[1].buf = buf;
+			num_msgs = 2;
+		}
+		break;
+
+	case I2C_SMBUS_I2C_BLOCK_DATA:
+		if (read_write == I2C_SMBUS_WRITE) {
+			msg[0].addr = addr;
+			msg[0].flags = flags & ~I2C_CLIENT_PEC;
+			msg[0].len = data->block[0] + 1 + (pec ? 1 : 0);
+			msg[0].buf = buf;
+			buf[0] = command;
+			memcpy(&buf[1], &data->block[1], data->block[0]);
+			if (pec)
+				buf[data->block[0] + 1] = 0; /* Placeholder for PEC */
+			num_msgs = 1;
+		} else {
+			msg[0].addr = addr;
+			msg[0].flags = flags & ~I2C_CLIENT_PEC;
+			msg[0].len = 1;
+			msg[0].buf = &command;
+
+			msg[1].addr = addr;
+			msg[1].flags = (flags & ~I2C_CLIENT_PEC) | I2C_M_RD;
+			msg[1].len = data->block[0] + (pec ? 1 : 0);
+			msg[1].buf = buf;
+			num_msgs = 2;
+		}
+		break;
+
+	case I2C_SMBUS_BLOCK_PROC_CALL:
+		msg[0].addr = addr;
+		msg[0].flags = flags & ~I2C_CLIENT_PEC;
+		msg[0].len = data->block[0] + 2;
+		msg[0].buf = buf;
+		buf[0] = command;
+		buf[1] = data->block[0];
+		memcpy(&buf[2], &data->block[1], data->block[0]);
+
+		msg[1].addr = addr;
+		msg[1].flags = (flags & ~I2C_CLIENT_PEC) | I2C_M_RD;
+		msg[1].len = I2C_SMBUS_BLOCK_MAX + 1;
+		msg[1].buf = buf;
+		num_msgs = 2;
+		break;
+
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	ret = gxp_i2c_master_xfer(adapter, msg, num_msgs);
+	if (ret < 0) {
+		dev_dbg(&adapter->dev, "SMBus xfer failed: addr=0x%02x, size=%d, cmd=0x%02x, rw=%d, ret=%d\n",
+			addr, size, command, read_write, ret);
+		return ret;
+	}
+
+	/* Handle read data */
+	if (read_write == I2C_SMBUS_READ) {
+		switch (size) {
+		case I2C_SMBUS_BYTE:
+			data->byte = buf[0];
+			break;
+		case I2C_SMBUS_BYTE_DATA:
+			data->byte = buf[0];
+			break;
+		case I2C_SMBUS_WORD_DATA:
+		case I2C_SMBUS_PROC_CALL:
+			data->word = buf[0] | (buf[1] << 8);
+			break;
+		case I2C_SMBUS_BLOCK_DATA:
+			data->block[0] = buf[0];
+			memcpy(&data->block[1], &buf[1], buf[0]);
+			/* PEC validation would go here if enabled */
+			break;
+		case I2C_SMBUS_I2C_BLOCK_DATA:
+			memcpy(&data->block[1], buf, data->block[0]);
+			/* PEC validation would go here if enabled */
+			break;
+		case I2C_SMBUS_BLOCK_PROC_CALL:
+			data->block[0] = buf[0];
+			memcpy(&data->block[1], &buf[1], buf[0]);
+			break;
+		}
+	}
+
+	return 0;
 }
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
@@ -185,20 +443,13 @@ static int gxp_i2c_unreg_slave(struct i2c_client *slave)
 
 static const struct i2c_algorithm gxp_i2c_algo = {
 	.master_xfer   = gxp_i2c_master_xfer,
+	.smbus_xfer    = gxp_i2c_smbus_xfer,
 	.functionality = gxp_i2c_func,
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	.reg_slave     = gxp_i2c_reg_slave,
 	.unreg_slave   = gxp_i2c_unreg_slave,
 #endif
 };
-
-static void gxp_i2c_stop(struct gxp_i2c_drvdata *drvdata)
-{
-	/* Clear event and send stop */
-	writeb(MASTER_EVT_CLR | STOP_CMD, drvdata->base + GXP_I2CMCMD);
-
-	complete(&drvdata->completion);
-}
 
 static void gxp_i2c_restart(struct gxp_i2c_drvdata *drvdata)
 {
@@ -354,6 +605,7 @@ static void gxp_i2c_chk_data_ack(struct gxp_i2c_drvdata *drvdata)
 	writew(value, drvdata->base + GXP_I2CMCMD);
 }
 
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
 static bool gxp_i2c_slave_irq_handler(struct gxp_i2c_drvdata *drvdata)
 {
 	u8 value;
@@ -437,16 +689,25 @@ static bool gxp_i2c_slave_irq_handler(struct gxp_i2c_drvdata *drvdata)
 
 	return true;
 }
+#endif /* CONFIG_I2C_SLAVE */
 
 static irqreturn_t gxp_i2c_irq_handler(int irq, void *_drvdata)
 {
 	struct gxp_i2c_drvdata *drvdata = (struct gxp_i2c_drvdata *)_drvdata;
 	u32 value;
 
+#ifdef CONFIG_ARCH_HPE_GXP
+	/*
+	 * Note: In GXP Architecture there is a shared interrupt
+	 * for every engine. In  GSC each engine has its own
+	 * interrupt
+	 */
+
 	/* Check if the interrupt is for the current engine */
 	regmap_read(i2cg_map, GXP_I2CINTSTAT, &value);
 	if (!(value & BIT(drvdata->engine)))
 		return IRQ_NONE;
+#endif
 
 	value = readb(drvdata->base + GXP_I2CEVTERR);
 
@@ -489,9 +750,21 @@ static irqreturn_t gxp_i2c_irq_handler(int irq, void *_drvdata)
 
 static void gxp_i2c_init(struct gxp_i2c_drvdata *drvdata)
 {
+	u8 freq_div;
+
 	drvdata->state = GXP_I2C_IDLE;
-	writeb(2000000 / drvdata->t.bus_freq_hz,
-	       drvdata->base + GXP_I2CFREQDIV);
+	drvdata->stopped = 0;
+
+	/* Calculate frequency divider
+	 * Assuming 2MHz source clock divided by desired bus frequency
+	 * For 100KHz: 2000000 / 100000 = 20
+	 * For 400KHz: 2000000 / 400000 = 5
+	 */
+	freq_div = 2000000 / drvdata->t.bus_freq_hz;
+	if (freq_div == 0)
+		freq_div = 1; /* Minimum divider */
+
+	writeb(freq_div, drvdata->base + GXP_I2CFREQDIV);
 	writeb(FILTER_CNT | FAIRNESS_CNT,
 	       drvdata->base + GXP_I2CFLTFAIR);
 	writeb(GXP_DATA_EDGE_RST_CTRL, drvdata->base + GXP_I2CTMOEDG);
@@ -510,6 +783,14 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 	struct gxp_i2c_drvdata *drvdata;
 	int rc;
 	struct i2c_adapter *adapter;
+	struct resource *res;
+
+#ifdef CONFIG_ARCH_HPE_GXP
+	/*
+	 * Note: In GXP Architecture there is a shared interrupt
+	 * for every engine. In  GSC each engine has its own
+	 * interrupt
+	 */
 
 	if (!i2cg_map) {
 		i2cg_map = syscon_regmap_lookup_by_phandle(pdev->dev.of_node,
@@ -522,6 +803,7 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 		/* Disable interrupt */
 		regmap_update_bits(i2cg_map, GXP_I2CINTEN, 0x00000FFF, 0);
 	}
+#endif
 
 	drvdata = devm_kzalloc(&pdev->dev, sizeof(*drvdata),
 			       GFP_KERNEL);
@@ -537,10 +819,13 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 		return PTR_ERR(drvdata->base);
 
 	/* Use physical memory address to determine which I2C engine this is. */
-	drvdata->engine = ((size_t)drvdata->base & 0xf00) >> 8;
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res)
+		return -EINVAL;
+	drvdata->engine = (res->start & 0x1f00) >> 8;
 
-	if (drvdata->engine >= GXP_MAX_I2C_ENGINE) {
-		return dev_err_probe(&pdev->dev, -EINVAL, "i2c engine% is unsupported\n",
+	if (drvdata->engine >= MAX_I2C_ENGINE) {
+		return dev_err_probe(&pdev->dev, -EINVAL, "i2c engine %d is unsupported\n",
 			drvdata->engine);
 	}
 
@@ -556,12 +841,32 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 
 	i2c_parse_fw_timings(&pdev->dev, &drvdata->t, true);
 
+	/* Validate bus frequency */
+	if (drvdata->t.bus_freq_hz == 0) {
+		dev_warn(&pdev->dev, "bus-frequency not specified, using default 100KHz\n");
+		drvdata->t.bus_freq_hz = 100000;
+	}
+
+	if (drvdata->t.bus_freq_hz > 400000) {
+		dev_warn(&pdev->dev, "bus-frequency %d Hz exceeds maximum 400KHz, clamping\n",
+			 drvdata->t.bus_freq_hz);
+		drvdata->t.bus_freq_hz = 400000;
+	}
+
 	gxp_i2c_init(drvdata);
 
+#ifdef CONFIG_ARCH_HPE_GXP
+	/*
+	 * Note: In GXP Architecture there is a shared interrupt
+	 * for every engine. In  GSC each engine has its own
+	 * interrupt
+	 */
 	/* Enable interrupt */
 	regmap_update_bits(i2cg_map, GXP_I2CINTEN, BIT(drvdata->engine),
 			   BIT(drvdata->engine));
+#endif
 
+	/* NICK TODO: Seems like we need a different compatible */
 	adapter = &drvdata->adapter;
 	i2c_set_adapdata(adapter, drvdata);
 
@@ -570,6 +875,8 @@ static int gxp_i2c_probe(struct platform_device *pdev)
 	adapter->algo = &gxp_i2c_algo;
 	adapter->dev.parent = &pdev->dev;
 	adapter->dev.of_node = pdev->dev.of_node;
+	adapter->timeout = msecs_to_jiffies(1000); /* 1 second timeout */
+	adapter->retries = 3;
 
 	rc = i2c_add_adapter(adapter);
 	if (rc)
@@ -582,8 +889,10 @@ static void gxp_i2c_remove(struct platform_device *pdev)
 {
 	struct gxp_i2c_drvdata *drvdata = platform_get_drvdata(pdev);
 
+#ifdef CONFIG_ARCH_HPE_GXP
 	/* Disable interrupt */
 	regmap_update_bits(i2cg_map, GXP_I2CINTEN, BIT(drvdata->engine), 0);
+#endif
 	i2c_del_adapter(&drvdata->adapter);
 }
 

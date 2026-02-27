@@ -171,6 +171,9 @@ static struct mtd_info *allocate_partition(struct mtd_info *parent,
 		child->erasesize = master->erasesize;
 	}
 
+	/* Inherit maximum erase size from parent for userspace optimization */
+	child->erasesize_max = master->erasesize_max;
+
 	/*
 	 * Child erasesize might differ from the parent one if the parent
 	 * exposes several regions with different erasesize. Adjust

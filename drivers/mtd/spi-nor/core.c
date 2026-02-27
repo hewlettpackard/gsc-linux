@@ -1823,7 +1823,36 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	/* "sector"-at-a-time erase */
 	} else if (spi_nor_has_uniform_erase(nor)) {
+		const struct spi_nor_erase_map *map = &nor->params->erase_map;
+		const struct spi_nor_erase_region *region = &map->uniform_region;
+		const struct spi_nor_erase_type *erase_type;
+		u32 erase_len;
+		int i;
+
 		while (len) {
+			/* Find the largest erase size that:
+			 * 1. Is properly aligned to current address
+			 * 2. Fits within the remaining length
+			 */
+			erase_type = NULL;
+			erase_len = mtd->erasesize;  /* Default to smallest */
+
+			for (i = SNOR_ERASE_TYPE_MAX - 1; i >= 0; i--) {
+				if (!(region->erase_mask & BIT(i)))
+					continue;
+				if (!map->erase_type[i].size)
+					continue;
+
+				u32 candidate_size = map->erase_type[i].size;
+
+				/* Check alignment and length */
+				if ((addr % candidate_size) == 0 && candidate_size <= len) {
+					erase_type = &map->erase_type[i];
+					erase_len = candidate_size;
+					break;
+				}
+			}
+
 			ret = spi_nor_lock_device(nor);
 			if (ret)
 				goto erase_err;
@@ -1834,7 +1863,17 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 				goto erase_err;
 			}
 
-			ret = spi_nor_erase_sector(nor, addr);
+			/* Use the selected erase type if available, otherwise default */
+			if (erase_type && nor->spimem) {
+				struct spi_mem_op op =
+					SPI_NOR_SECTOR_ERASE_OP(erase_type->opcode,
+								nor->addr_nbytes, addr);
+				spi_nor_spimem_setup_op(nor, &op, nor->reg_proto);
+				ret = spi_mem_exec_op(nor->spimem, &op);
+			} else {
+				ret = spi_nor_erase_sector(nor, addr);
+			}
+
 			spi_nor_unlock_device(nor);
 			if (ret)
 				goto erase_err;
@@ -1843,8 +1882,8 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 			if (ret)
 				goto erase_err;
 
-			addr += mtd->erasesize;
-			len -= mtd->erasesize;
+			addr += erase_len;
+			len -= erase_len;
 		}
 
 	/* erase multiple sectors */
@@ -2507,8 +2546,8 @@ spi_nor_select_uniform_erase(struct spi_nor_erase_map *map)
 	if (!erase)
 		return NULL;
 
-	/* Disable all other Sector Erase commands. */
-	map->uniform_region.erase_mask = BIT(erase - map->erase_type);
+	/* DON'T disable other erase commands - keep all available for dynamic selection */
+	/* map->uniform_region.erase_mask = BIT(erase - map->erase_type); */
 	return erase;
 }
 
@@ -2528,11 +2567,23 @@ static int spi_nor_select_erase(struct spi_nor *nor)
 	 * size, when possible.
 	 */
 	if (spi_nor_has_uniform_erase(nor)) {
+		/* Find the maximum erase size BEFORE selecting the default erase type
+		 * since spi_nor_select_uniform_erase() clears the erase_mask.
+		 */
+		for (i = SNOR_ERASE_TYPE_MAX - 1; i >= 0; i--) {
+			if (map->erase_type[i].size > mtd->erasesize_max)
+				mtd->erasesize_max = map->erase_type[i].size;
+		}
+
 		erase = spi_nor_select_uniform_erase(map);
 		if (!erase)
 			return -EINVAL;
 		nor->erase_opcode = erase->opcode;
 		mtd->erasesize = erase->size;
+
+		/* Fallback if not found */
+		if (!mtd->erasesize_max)
+			mtd->erasesize_max = mtd->erasesize;
 		return 0;
 	}
 
@@ -2551,6 +2602,7 @@ static int spi_nor_select_erase(struct spi_nor *nor)
 		return -EINVAL;
 
 	mtd->erasesize = erase->size;
+	mtd->erasesize_max = erase->size;  /* For non-uniform, they're the same */
 	return 0;
 }
 

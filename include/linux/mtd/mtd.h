@@ -245,6 +245,13 @@ struct mtd_info {
 	 * information below if they desire
 	 */
 	uint32_t erasesize;
+	/* Maximum erase size supported by the device. For devices that support
+	 * multiple erase sizes (e.g., SPI-NOR with 4K, 32K, 64K), this is the
+	 * largest. Userspace tools can use this for optimal performance while
+	 * kernel consumers use the conservative erasesize value.
+	 */
+	uint32_t erasesize_max;
+
 	/* Minimal writable flash unit size. In case of NOR flash it is 1 (even
 	 * though individual bits can be cleared), in case of NAND flash it is
 	 * one NAND page (or half, or one-fourths of it), in case of ECC-ed NOR

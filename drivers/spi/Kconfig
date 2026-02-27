@@ -417,6 +417,13 @@ config SPI_GXP
 	  This enables support for the driver for GXP bus attached SPI
 	  controllers.
 
+config SPI_GSC
+	tristate "GSC SPI driver"
+	depends on ARCH_HPE || COMPILE_TEST
+	help
+	  This new driver add supoort for the GSC bus attached SPI
+	  controllers.
+
 config SPI_HISI_KUNPENG
 	tristate "HiSilicon SPI Controller for Kunpeng SoCs"
 	depends on (ARM64 && ACPI) || COMPILE_TEST

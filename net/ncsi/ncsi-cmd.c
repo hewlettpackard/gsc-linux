@@ -344,6 +344,9 @@ int ncsi_xmit_cmd(struct ncsi_cmd_arg *nca)
 	}
 
 	if (!nch) {
+		netdev_dbg(nca->ndp->ndev.dev,
+			   "NCSI: xmit_cmd no handler for type 0x%02x\n",
+			   nca->type);
 		netdev_err(nca->ndp->ndev.dev,
 			   "Cannot send packet with type 0x%02x\n", nca->type);
 		return -ENOENT;
@@ -357,20 +360,27 @@ int ncsi_xmit_cmd(struct ncsi_cmd_arg *nca)
 	if (nch->payload >= 0)
 		nca->payload = nch->payload;
 	nr = ncsi_alloc_command(nca);
-	if (!nr)
+	if (!nr) {
+		netdev_dbg(nca->ndp->ndev.dev, "NCSI: xmit_cmd failed to allocate command\n");
 		return -ENOMEM;
+	}
 
 	/* track netlink information */
 	if (nca->req_flags == NCSI_REQ_FLAG_NETLINK_DRIVEN) {
 		nr->snd_seq = nca->info->snd_seq;
 		nr->snd_portid = nca->info->snd_portid;
 		nr->nlhdr = *nca->info->nlhdr;
+
+		netdev_dbg(nca->ndp->ndev.dev,
+			   "NCSI: xmit_cmd tracking netlink seq=%d portid=%d\n",
+			   nr->snd_seq, nr->snd_portid);
 	}
 
 	/* Prepare the packet */
 	nca->id = nr->id;
 	ret = nch->handler(nr->cmd, nca);
 	if (ret) {
+		netdev_dbg(nca->ndp->ndev.dev, "NCSI: xmit_cmd handler failed ret=%d\n", ret);
 		ncsi_free_request(nr);
 		return ret;
 	}
@@ -396,13 +406,19 @@ int ncsi_xmit_cmd(struct ncsi_cmd_arg *nca)
 	nr->enabled = true;
 	mod_timer(&nr->timer, jiffies + 1 * HZ);
 
+	netdev_dbg(nca->ndp->ndev.dev,
+		   "NCSI: xmit_cmd sending iid=0x%02x type=0x%02x pkg=%u ch=%u\n",
+		   nca->id, nca->type, nca->package, nca->channel);
+
 	/* Send NCSI packet */
 	skb_get(nr->cmd);
 	ret = dev_queue_xmit(nr->cmd);
 	if (ret < 0) {
+		netdev_dbg(nca->ndp->ndev.dev, "NCSI: xmit_cmd transmission failed ret=%d\n", ret);
 		ncsi_free_request(nr);
 		return ret;
 	}
 
+	netdev_dbg(nca->ndp->ndev.dev, "NCSI: xmit_cmd packet queued successfully\n");
 	return 0;
 }
