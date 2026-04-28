@@ -388,7 +388,9 @@ static s32 gxp_i2c_smbus_xfer(struct i2c_adapter *adapter, u16 addr,
 			break;
 		case I2C_SMBUS_BLOCK_DATA:
 			data->block[0] = buf[0];
-			memcpy(&data->block[1], &buf[1], buf[0]);
+			if (data->block[0] > I2C_SMBUS_BLOCK_MAX)
+				data->block[0] = I2C_SMBUS_BLOCK_MAX;
+			memcpy(&data->block[1], &buf[1], data->block[0]);
 			/* PEC validation would go here if enabled */
 			break;
 		case I2C_SMBUS_I2C_BLOCK_DATA:
@@ -397,7 +399,9 @@ static s32 gxp_i2c_smbus_xfer(struct i2c_adapter *adapter, u16 addr,
 			break;
 		case I2C_SMBUS_BLOCK_PROC_CALL:
 			data->block[0] = buf[0];
-			memcpy(&data->block[1], &buf[1], buf[0]);
+			if (data->block[0] > I2C_SMBUS_BLOCK_MAX)
+				data->block[0] = I2C_SMBUS_BLOCK_MAX;
+			memcpy(&data->block[1], &buf[1], data->block[0]);
 			break;
 		}
 	}
